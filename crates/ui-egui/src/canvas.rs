@@ -1808,14 +1808,18 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // Space and Enter also set `Response::clicked` on a focused click-sensing widget
     // (egui's fake primary click). `request_focus` always interrupts IME; on X11 that
     // destroys the XIM context and fcitx then drops every later key (#1169). A pointer
-    // click, an accessibility click, or a drag still takes focus, including a click on
-    // a canvas that already has it, so a composition commits. `want_focus` focuses only
+    // click, an accessibility click, or a drag takes focus, except a press on a canvas that
+    // already has it with no composition open (`press_on_focused`); with one open it still
+    // takes focus, so the composition commits. `want_focus` focuses only
     // while the canvas does not, and does not interrupt an editor that already has it.
     let keyboard_click = ui.memory(|m| m.has_focus(resp.id)) && ui.input(|i| i.key_pressed(egui::Key::Space) || i.key_pressed(egui::Key::Enter));
     let pointer_click = resp.clicked_by(egui::PointerButton::Primary);
     let accesskit_click = resp.clicked() && !pointer_click && !keyboard_click;
     let focus_click = pointer_click || accesskit_click || resp.drag_started();
-    if focus_click || (app.canvas.want_focus && !resp.has_focus()) {
+    // A press on a canvas that already has focus, with no composition open, has nothing to commit:
+    // asking for focus again would interrupt IME, which on Android hides and re-shows the keyboard.
+    let press_on_focused = (pointer_click || resp.drag_started()) && resp.has_focus() && app.canvas.ime_preedit.is_empty();
+    if (focus_click && !press_on_focused) || (app.canvas.want_focus && !resp.has_focus()) {
         resp.request_focus();
     }
     if focus_click || app.canvas.want_focus {
@@ -7084,8 +7088,8 @@ mod tests {
     /// #1169: Space and Enter count as `Response::clicked` on the focused canvas, and
     /// `request_focus` always interrupts IME. On X11 that recreates the XIM context and
     /// fcitx drops every later key. Those keys still type, and they must not set
-    /// `should_interrupt_composition`. A real pointer click still does, so a composition
-    /// commits when the caret moves.
+    /// `should_interrupt_composition`. A pointer click does only while a composition is open
+    /// (`a_tap_on_the_focused_canvas_interrupts_ime_only_while_composing`).
     #[test]
     fn space_and_enter_on_the_canvas_do_not_interrupt_ime() {
         let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
@@ -7117,14 +7121,44 @@ mod tests {
         assert_eq!(ime_interrupted(&h), Some(false), "enter must not recreate the XIM context");
         assert!(h.state().canvas.focused, "enter leaves the canvas focused");
 
-        let at = h.state().canvas.page_rects.first().map(|r| r.center()).expect("a page");
-        h.event(egui::Event::PointerMoved(at));
-        h.step();
-        for pressed in [true, false] {
-            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+    }
+
+    /// A tap on the focused canvas with nothing composing must not interrupt IME: on Android that
+    /// hides and re-shows the soft keyboard on every tap. While a composition is open, a tap still
+    /// interrupts, so the composition commits.
+    #[test]
+    fn a_tap_on_the_focused_canvas_interrupts_ime_only_while_composing() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("document.setText", json!({"text": "The"})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        for _ in 0..8 {
             h.step();
         }
-        assert_eq!(ime_interrupted(&h), Some(true), "a click still interrupts composition");
+        assert!(h.state().canvas.focused, "the canvas takes focus when the window opens");
+        let ime_interrupted =
+            |h: &egui_kittest::Harness<'_, WordApp>| h.output().platform_output.ime.as_ref().map(|ime| ime.should_interrupt_composition);
+        let at = h.state().canvas.page_rects.first().map(|r| r.center()).expect("a page");
+        let tap = |h: &mut egui_kittest::Harness<'_, WordApp>| {
+            h.event(egui::Event::PointerMoved(at));
+            h.step();
+            for pressed in [true, false] {
+                h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+                h.step();
+            }
+        };
+        tap(&mut h);
+        assert_eq!(ime_interrupted(&h), Some(false), "a tap with nothing composing must not interrupt IME");
+        assert!(h.state().canvas.focused, "the tap keeps the canvas focused");
+        h.state_mut().canvas.ime_preedit = "ka".into();
+        tap(&mut h);
+        assert_eq!(ime_interrupted(&h), Some(true), "a tap while composing still interrupts, so the composition commits");
     }
 
     /// While an input method composes, the caret and the candidate window sit at its cursor inside

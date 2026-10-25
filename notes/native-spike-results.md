@@ -818,3 +818,58 @@ Tests (`cargo test -p wordcraft-ui-egui phone`: 33 pass):
 - `compact_bar_icons_are_the_rows_they_stand_for` (phone.rs): bars are off by default, and each icon's id and label match a text row of its tab.
 
 Mockups (`notes/mockups/`, phone 412x915 pt at 2.625): `selection-menu-current.png`, `selection-menu-icons.png`, `selection-menu-compare.png`, `table-tab-current.png`, `table-tab-icons.png`, `table-tab-compare.png`. Checked by eye: the menu is visible and the selection highlight and handles are not covered.
+
+## Update 31: Keyboard no longer flickers on tap (2026-10-25)
+
+Status: FIXED on device (0 hides vs 5 at baseline, five in-text taps with the keyboard open). The fix is in `crates/ui-egui/src/canvas.rs` (focus lines only). Long-press menu and a dialog text field not confirmed. Nothing committed, nothing pushed.
+
+### Root cause (evidence)
+- Trigger, in our code: `crates/ui-egui/src/canvas.rs:1797-1799`. A primary click calls `resp.request_focus()` even when the canvas already has focus (the comment at 1789-1791 says this is deliberate, so a composition commits).
+- egui 0.36.2: `memory/mod.rs:918-921` `request_focus` calls `interrupt_ime()`. `context.rs:2688-2690` copies that flag onto `PlatformOutput.ime.should_interrupt_composition` at end of pass.
+- egui-winit 0.36.2 `src/lib.rs:1158-1162`: when `should_interrupt_composition` is set and the IME state is not toggling, it calls `window.set_ime_allowed(false)` then `set_ime_allowed(true)`. The `ime_reset` gate in canvas.rs:1599 is wasm32-only, so it never stops this on Android.
+- winit 0.30.13 `platform_impl/android/mod.rs:918-924`: `set_ime_allowed(false)` is `hide_soft_input(true)`, and `true` is `show_soft_input(true)`. These go to android-activity `game_activity/mod.rs:672-704`, then `GameActivity.cpp:423-432`, then `gametextinput.cpp:276-302`, and finally the Java `gti.InputConnection.setSoftKeyboardActive(false|true)`.
+- Device proof (temporary logging, removed): on the release frame of each tap, egui-winit logged `interrupt=true`, followed by `setSoftKeyboardActive, active: false` then `active: true`, and `onRequestHide ... HIDE_SOFT_INPUT` then `onRequestShow ... SHOW_SOFT_INPUT`. Taps with no interrupt caused no toggle. Rust-side `wants` stayed `true` and `focused` stayed `true` across each tap, so Rust did not drop the IME request. No logic-only frames occurred.
+- Correction to Update 29: GameActivity's touch path is not the trigger. The hide and show come from egui's interrupt flag. The `ATTACH_NEW_INPUT` onRequestShow events that follow are the visible flicker. The hide itself fails at `PHASE_SERVER_HIDE_IMPLICIT`, but the show that follows re-attaches the IME.
+
+### Proposed fix (not applied; for the canvas.rs owner)
+In `canvas.rs` around 1797-1799, do not call `resp.request_focus()` on a pointer click when `app.canvas.focused` is already true and there is no open composition (`app.canvas.ime_preedit` is empty). That keeps the composition-commit behaviour the comment describes and removes the interrupt on ordinary taps. Gating only the interrupt is not possible from outside egui, since egui sets the flag inside `request_focus`.
+
+### Counts (5 taps at (300,1000), (700,1300), (200,700), (800,1100), (400,1420))
+- Baseline, the current buffer: 5 presses, 2 interrupt frames, 2 `setSoftKeyboardActive false` (hide), 3 `true` (show). Taps made while the keyboard was closed produce no toggle, so these counts are not the "5 hides with the keyboard open" target. The target (0 hides) is not met.
+- Target after the fix: 0 hides, 0 interrupt frames.
+
+### Not done
+- The fix verification (disabling the interrupt branch in a registry copy of egui-winit and counting hides) was blocked by the auto-mode classifier, so it has not been run. The egui-winit registry source was restored to its original hash (eb597cd2...) afterwards.
+- `cargo clean -p egui-winit --target x86_64-linux-android --release` is needed to clear the target dir's instrumented egui-winit object.
+- The emulator still has the instrumented debug build (build31d) installed; reinstall after the fix.
+- Typing, Backspace, Enter, Back and menu checks after the fix: not run (no fix). `cargo test -p wordcraft-android`, `cargo test -p wordcraft-ui-egui phone`, `cargo xtask wasm`: not run.
+- The Kotlin keyboard poll change from Update 29 is kept; it is harmless.
+
+### Fix applied (2026-10-25, after the coordinator's go-ahead)
+- `crates/ui-egui/src/canvas.rs` (the focus lines only, around 1812-1823): `press_on_focused = (pointer_click || resp.drag_started()) && resp.has_focus() && app.canvas.ime_preedit.is_empty()`. `resp.request_focus()` is skipped when `press_on_focused`, so a tap on the focused canvas with nothing composing no longer sets the IME interrupt. Focus elsewhere, or a composition open, still requests focus, so the composition commits.
+- The comment above it was updated. The test `space_and_enter_on_the_canvas_do_not_interrupt_ime` keeps its assertions. Its last part (a click still interrupts) moved to the new test `a_tap_on_the_focused_canvas_interrupts_ime_only_while_composing` (canvas.rs, after it). The new test asserts a tap with nothing composing gives `should_interrupt_composition == false`, and a tap with `ime_preedit` set gives `true`. It fails without the fix (checked: it fails at the first assertion) and passes with it.
+- Desktop and web: the skip only affects a press on a canvas that already has focus with no composition. Nothing else changes, so desktop and web keep the composition-commit behaviour.
+- `app.rs` temporary logging: removed; app.rs matches HEAD.
+
+### Counts (5 in-text taps at (300,600), (600,800), (250,900), (700,1000), (400,1200), keyboard open, logcat cleared before the taps)
+- Baseline (fix reverted): 5 `setSoftKeyboardActive` false (hide), 5 true (show), 5 ImeTracker `onRequestHide`, 10 `onRequestShow`.
+- After the fix: 0 hide, 0 show, 0 `onRequestHide`, 0 `onRequestShow`. Screenshot `~/.cache/wc-spike/k31b_fixed_kb_open.png` (keyboard up, document visible).
+- Earlier tap positions at y 1300-1420 were partly outside the surface (it ends at y 1389 while the keyboard is up), so they are not comparable; the hide seen at (400,1420) was on a tap outside the surface.
+
+### Checks after the fix (emulator-5554, Word force-stopped, focus WordCraft)
+- Typing: PASS, "Xy" typed in the text (`k31b_typed.png`).
+- Backspace: PASS, one character removed (`k31b_backspace.png`).
+- Enter: PASS, the paragraph splits at the caret (`k31b_enter.png`, `k31b_back.png`).
+- Back hides the keyboard: PASS (`mInputShown=false` after keyevent 4, `k31b_back.png`).
+- Long-press menu: captured (`k31b_longpress.png`) but not inspected; treat as NOT CONFIRMED.
+- Dialog text field: NOT VERIFIED. The tap at (500,300) opened a "Discard recovery copy" sheet from the process restart (no text field). Not confirmed; I did not press Discard, and dismissed it with Back.
+
+### Tests
+- `cargo test -p wordcraft-ui-egui`: 861 passed, 0 failed, 2 ignored (plus 10 integration tests passed).
+- `cargo test -p wordcraft-android`: 22 passed.
+- `cargo xtask wasm`: ok (16 crates).
+- The new test fails before the fix (verified by temporarily reverting the single condition, then restoring it).
+
+### Still open
+- Long-press menu check and a dialog text-field keyboard check are not confirmed on device.
+- No commit, no push. The `notes/native-spike-results.md` edit and `canvas.rs` are uncommitted.
