@@ -593,6 +593,12 @@ pub struct WordApp {
     fonts_frames: u32,
     /// The phone layout has set Page Width once this session ([`phone::active`]).
     phone_fitted: bool,
+    /// Phone option: the selection menu is one row of icon buttons ([`phone::compact_context_menu`]).
+    /// Off by default; the list menu stays the default.
+    pub compact_selection_menu: bool,
+    /// Phone option: a tab sheet leads with icon buttons for its commonest commands, and drops the
+    /// text rows they repeat ([`phone::compact_tab_bar`]). Off by default.
+    pub compact_tab_bars: bool,
     /// Whether the phone layout is on this frame ([`phone::active`]), set at the top of `ui`.
     pub(crate) phone: bool,
     /// The effective interface theme last installed in egui ([`theme::apply`]).
@@ -733,6 +739,8 @@ impl WordApp {
             find_fonts_for: None,
             fonts_frames: 0,
             phone_fitted: false,
+            compact_selection_menu: false,
+            compact_tab_bars: false,
             phone: false,
             applied_theme: None,
             native_scale: 1.0,
@@ -1592,6 +1600,16 @@ impl WordApp {
                 }
                 json!({"backstage": self.ui.backstage})
             }
+            // The phone's compact menus (`compactSelection`, `compactTabs`): a setting, not a dialog.
+            "ui.phoneMenus" => {
+                if let Some(on) = p.get("compactSelection").and_then(Value::as_bool) {
+                    self.compact_selection_menu = on;
+                }
+                if let Some(on) = p.get("compactTabs").and_then(Value::as_bool) {
+                    self.compact_tab_bars = on;
+                }
+                json!({"compactSelection": self.compact_selection_menu, "compactTabs": self.compact_tab_bars})
+            }
             "ui.dialog" if s("name") == Some("colors") => {
                 // The font colour's More Colors… (#606); `tab`: standard or custom.
                 let target = colors::Target::cmd("format.color").remember(colors::Remember::FontColor);
@@ -2440,14 +2458,30 @@ impl WordApp {
     /// so the app stays open). The web shell tells the Android
     /// shell (`window.wcCanGoBack`).
     pub fn can_go_back(&self, ctx: &egui::Context) -> bool {
-        self.dialog.is_some() || self.colors.is_some() || phone::can_go_back(ctx) || self.ui.backstage || self.canvas.context_menu_open || !self.session.sel.is_collapsed()
+        self.dialog.is_some()
+            || self.colors.is_some()
+            || phone::can_go_back(ctx)
+            || self.ui.backstage
+            || self.canvas.context_menu_open
+            || !self.session.sel.is_collapsed()
     }
 
     /// The phone's formatting bar is drawn unless a dialog sheet (or the Colors sheet) is open. The
     /// file browser, Zotero's alert and Read Aloud are sheets on the phone too (Update 27).
     pub(crate) fn formatting_bar_shown(&self) -> bool {
-        let sheet = self.phone && (self.file_browser.open.is_some() || zotero::alert_open(self) || self.session.read_aloud.open);
+        // The built-in file browser is desktop-only (its field is not compiled for wasm).
+        #[cfg(not(target_arch = "wasm32"))]
+        let browser = self.file_browser.open.is_some();
+        #[cfg(target_arch = "wasm32")]
+        let browser = false;
+        let sheet = self.phone && (browser || zotero::alert_open(self) || self.session.read_aloud.open);
         self.dialog.is_none() && self.colors.is_none() && !sheet
+    }
+
+    /// Opens the phone's tab sheet on a tab (0 Home ... 5 Table, 6 Picture), as ⋮ does. Used by the
+    /// headless screenshots (`ui_shot`'s `phoneSheet` line).
+    pub fn open_phone_sheet(&mut self, ctx: &egui::Context, tab: usize) {
+        phone::open_menu(self, ctx, tab);
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
@@ -4909,6 +4943,91 @@ mod tests {
         assert!(h.state().dialog.is_none(), "Escape closes the sheet");
     }
 
+    /// A phone press at `at`, held for `hold` frames (a long press holds about 0.4 s), then released.
+    fn phone_press(a: &mut WordApp, frame: &mut impl FnMut(&mut WordApp, Vec<egui::Event>), at: egui::Pos2, hold: usize) {
+        let btn = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(a, vec![egui::Event::PointerMoved(at)]);
+        frame(a, vec![btn(at, true)]);
+        for _ in 0..hold {
+            frame(a, Vec::new());
+        }
+        frame(a, vec![btn(at, false)]);
+        for _ in 0..3 {
+            frame(a, Vec::new());
+        }
+    }
+
+    /// Item 1: with a phone tab sheet open, a long press on the page behind it does nothing to the
+    /// text (no selection, no scroll). The press closes the sheet, as a tap outside it does.
+    #[test]
+    fn phone_tab_sheet_takes_the_page_touches() {
+        let (ctx, mut frame) = phone_frames(400.0);
+        let mut a = app();
+        a.run("text.insert", json!({"text": "alpha people otherwise borrows"})).unwrap();
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        let page = a.canvas.page_rects.first().copied().expect("the canvas laid out");
+        phone::open_menu(&mut a, &ctx, 0);
+        frame(&mut a, Vec::new());
+        assert!(phone::sheet_open(&ctx), "the tab sheet is open");
+        let at = egui::pos2(page.left() + 70.0, page.top() + 20.0);
+        assert!(at.y < 340.0, "the press is on the page, above the sheet: {at:?}");
+        let before = a.session.sel.clone();
+        let scroll = a.canvas.scroll_offset;
+        phone_press(&mut a, &mut frame, at, 40);
+        assert_eq!(a.session.sel, before, "the long press did not select anything");
+        assert_eq!(a.canvas.scroll_offset, scroll, "the press did not scroll the page");
+        assert!(!phone::sheet_open(&ctx), "a press outside the sheet closes it");
+    }
+
+    /// Item 1: a press on the sheet itself keeps the sheet open and leaves the page alone.
+    #[test]
+    fn phone_tab_sheet_keeps_touches_on_itself() {
+        let (ctx, mut frame) = phone_frames(400.0);
+        let mut a = app();
+        a.run("text.insert", json!({"text": "alpha people otherwise borrows"})).unwrap();
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        phone::open_menu(&mut a, &ctx, 0);
+        frame(&mut a, Vec::new());
+        let before = a.session.sel.clone();
+        // The sheet's top edge (its drag handle) is at 800 - 0.55 * 800 = 360.
+        phone_press(&mut a, &mut frame, egui::pos2(200.0, 362.0), 40);
+        assert!(phone::sheet_open(&ctx), "a press on the sheet keeps it open");
+        assert_eq!(a.session.sel, before, "the page got no press");
+    }
+
+    /// Item 2: a tap outside the selection menu closes the menu only: the selection and its range
+    /// stay. With the menu closed, the next tap on the text places the caret.
+    #[test]
+    fn phone_tap_away_closes_the_menu_and_keeps_the_selection() {
+        let (_ctx, mut frame) = phone_frames(400.0);
+        let mut a = app();
+        a.run("text.insert", json!({"text": "alpha people otherwise borrows"})).unwrap();
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        let page = a.canvas.page_rects.first().copied().expect("the canvas laid out");
+        phone_press(&mut a, &mut frame, egui::pos2(page.left() + 70.0, page.top() + 20.0), 40);
+        assert_eq!(a.session.selected_text().trim(), "people", "the long press selected the word");
+        assert!(a.canvas.context_menu_open, "and opened the menu");
+        let range = a.session.sel.clone();
+        // A tap on "alpha", away from the selection and its menu.
+        phone_press(&mut a, &mut frame, egui::pos2(page.left() + 10.0, page.top() + 20.0), 1);
+        assert!(!a.canvas.context_menu_open, "the tap closed the menu");
+        assert_eq!(a.session.sel, range, "the selection range is kept");
+        assert_eq!(a.session.selected_text().trim(), "people");
+        // The menu is closed now: a tap on the text places the caret. A second tap at once would
+        // count as a double tap (egui's click count), so wait out the double-click time first.
+        for _ in 0..60 {
+            frame(&mut a, Vec::new());
+        }
+        phone_press(&mut a, &mut frame, egui::pos2(page.left() + 10.0, page.top() + 20.0), 1);
+        assert!(a.session.sel.is_collapsed(), "a second tap places a caret: {:?} page {:?}", a.session.sel, page);
+    }
+
     /// Update 23: the phone's formatting bar is hidden while a dialog sheet is open, and the sheet's
     /// OK button is the topmost thing at its centre.
     #[test]
@@ -5115,7 +5234,8 @@ mod tests {
     #[test]
     fn phone_status_message_is_drawn() {
         fn drawn(a: &mut WordApp, ctx: &egui::Context, msg: &str) -> bool {
-            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 800.0))), ..Default::default() };
+            let input =
+                egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 800.0))), ..Default::default() };
             let mut out = ctx.run_ui(input, |ui| {
                 a.logic(ui.ctx());
                 a.ui(ui);
