@@ -586,3 +586,36 @@ Follow-ups:
 3. Keyboard-open check over a dialog text field.
 4. Save Changes to the footer with focus-based keyboard handling kept; Notes footnote row; Styles rename row.
 5. file_browser.rs, read_aloud.rs, zotero alert to the sheet host on phone.
+
+## Update 25: Phone dialogs, pictures, fonts, keyboard (2026-10-25)
+Scope this pass: Picture Size and Crop on device, one layout fix. Most of the rest of the list was NOT reached (see below).
+
+Fix:
+- Picture > Size (`dialogs_layout.rs`, `size_ui`): the "Original size" row used `ui.horizontal`, so Reset ran off the right edge of the phone sheet (d25_15_size.png). Now `horizontal_wrapped`: on the phone Reset drops to its own line (d25_17_size_fixed.png). Desktop fits on one line, so it looks the same there. No new test (layout only).
+
+Device (emulator-5554, WordCraft focus checked, Word force-stopped; test PNG pushed to /sdcard/Pictures and scanned; picked via Insert > Picture > Images > Pictures):
+- d25_00..d25_12: route to the picture (Recover page, keyboard, More, tab chip, Insert > Picture, system picker, insertion). Not dialogs.
+- d25_13/d25_14: Picture tab (Size, Crop, Rotate Right/Left, Flip, Reset Picture, Delete Picture).
+- d25_15_size.png: BEFORE. Original size row overflowed. FIXED.
+- d25_17_size_fixed.png: AFTER. PASS (no overflow; Cancel | OK pinned; Height/Width and Scale boxes 48 pt).
+- Picture > Crop: NOT a dialog. It turns on in-place crop handles on the picture (d25_19_crop.png). Nothing to check in a sheet. Back leaves crop mode.
+
+Not run in this pass (no time left in this round):
+- Home > Font and Home > Paragraph (launcher rows not checked in the phone Home sheet; no code changes).
+- Keyboard-open check over a dialog text field.
+- Number boxes: DragValue on phone already 48 pt (Update 24). Number keyboard NOT done: needs the IME input type from the Android host; not simple, skipped.
+- file_browser.rs, read_aloud.rs, zotero alert to the phone sheet host: NOT started.
+- Save Changes footer: NOT started (keep the #861/#1597 focus flow; see Update 24).
+
+Tests (this update):
+- cargo test -p wordcraft-ui-egui: 850 passed, 0 failed, 2 ignored.
+- cargo test -p wordcraft-android: 21 passed.
+- cargo xtask wasm: ok (16 crates).
+- Clippy: not run.
+
+Follow-ups:
+1. Home > Font and Home > Paragraph on the phone (launchers + screenshots + fixes).
+2. Keyboard-open check over a dialog text field (Cancel/OK visible above the keyboard).
+3. file_browser.rs, read_aloud.rs, zotero alert to the sheet host on phone.
+4. Save Changes buttons into footer_row, keeping focus handling.
+5. Number keyboard for DragValue on Android (IME input type), if the host makes it simple.

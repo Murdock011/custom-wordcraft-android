@@ -1311,7 +1311,8 @@ fn size_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SizeForm) -> bool {
     ui.add_enabled(f.original.is_some(), egui::Checkbox::new(&mut f.relative, tl!("Relative to original picture size")));
     if let Some((w, h)) = f.uncropped {
         heading(ui, "Original size");
-        ui.horizontal(|ui| {
+        // Wraps on a narrow phone sheet instead of running off its edge (desktop fits on one line).
+        ui.horizontal_wrapped(|ui| {
             ui.label(format!("{} {}", tl!("Height:"), crate::options::length(h)));
             ui.add_space(12.0);
             ui.label(format!("{} {}", tl!("Width:"), crate::options::length(w)));
