@@ -1551,6 +1551,18 @@ impl WordApp {
         self.system_animations = self.services.animations_enabled.as_ref().and_then(|ask| ask());
     }
 
+    /// Opens Backstage from closed (the File tab, the phone's document icon). A Recover page left
+    /// showing, from start-up or an earlier File › Recover, is not reopened: the icon starts at Home,
+    /// and Recover comes up only when asked for or at start-up with copies waiting (Update 27).
+    fn reopen_backstage(&mut self) {
+        if !self.ui.backstage {
+            self.ui.backstage = true;
+            if self.ui.backstage_page == "recover" {
+                self.ui.backstage_page = "home".into();
+            }
+        }
+    }
+
     /// Commands that live in the UI layer.
     fn ui_command(&mut self, id: &str, p: &Value) -> Option<Result<Value, String>> {
         let s = |k: &str| p.get(k).and_then(Value::as_str);
@@ -1558,7 +1570,7 @@ impl WordApp {
             "ui.tab" => {
                 let tab = s("tab").unwrap_or("Home").to_string();
                 if tab == "File" {
-                    self.ui.backstage = true;
+                    self.reopen_backstage();
                 } else {
                     self.ui.tab = tab;
                     self.ui.backstage = false;
@@ -1566,7 +1578,12 @@ impl WordApp {
                 json!({"tab": self.ui.tab})
             }
             "ui.backstage" => {
-                self.ui.backstage = p.get("value").and_then(Value::as_bool).unwrap_or(!self.ui.backstage);
+                let open = p.get("value").and_then(Value::as_bool).unwrap_or(!self.ui.backstage);
+                if open {
+                    self.reopen_backstage();
+                } else {
+                    self.ui.backstage = false;
+                }
                 if let Some(pg) = s("page") {
                     self.ui.backstage_page = pg.into();
                 }

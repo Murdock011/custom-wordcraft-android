@@ -728,6 +728,15 @@ fn open_recent(app: &mut WordApp, path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether the Open page offers WordCraft's own browser. A host with a system picker answers
+/// Browse… itself (`open_async`: Android, the web), and that sandbox can't list the user's folders,
+/// so the entry is hidden there. Desktop keeps it as the fallback for a system dialog that never
+/// shows up (#576).
+#[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
+fn offers_builtin_browser(app: &WordApp) -> bool {
+    app.services.open_async.is_none()
+}
+
 fn open_page(app: &mut WordApp, ui: &mut Ui) {
     heading(ui, "Open");
     if ui.button(egui::RichText::new(tl!("Browse…")).font(medium(14.0))).clicked() {
@@ -736,7 +745,8 @@ fn open_page(app: &mut WordApp, ui: &mut Ui) {
     // Linux and the BSDs (#576): the system dialog needs a file chooser portal or zenity; when it
     // doesn't show up, WordCraft's own browser is always one click away.
     #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
-    if ui
+    if offers_builtin_browser(app)
+        && ui
         .button(egui::RichText::new(tl!("Browse in WordCraft…")).font(medium(14.0)))
         .on_hover_text(tl!("Open a file with WordCraft's own browser when the system file dialog doesn't appear."))
         .clicked()
@@ -1700,6 +1710,49 @@ mod tests {
         assert_eq!((a.session.doc.core.title.as_str(), a.session.doc.core.creator.as_str()), ("ALPHA", ""));
         a.session.run("edit.undo", &json!({})).unwrap();
         assert_eq!(a.session.doc.core.title, "");
+    }
+
+    /// The document icon (and File) opens Backstage at Home after a Recover page was left
+    /// showing: Recover comes up only when asked for or at start-up with copies (Update 27).
+    #[test]
+    fn document_icon_does_not_reopen_a_left_recover_page() {
+        for (command, params) in [("ui.backstage", json!({"value": true})), ("ui.tab", json!({"tab": "File"}))] {
+            let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+            app.ui.backstage_page = "recover".into();
+            app.run(command, params.clone()).unwrap();
+            assert!(app.ui.backstage);
+            assert_eq!(app.ui.backstage_page, "home", "{command} {params}");
+            app.ui.backstage = false;
+            app.ui.backstage_page = "recover".into();
+            let _ = app.run("file.recover", json!({}));
+            assert_eq!(app.ui.backstage_page, "recover", "File > Recover still opens its page");
+        }
+    }
+
+    /// Android has a system picker (`open_async`) and its sandbox can't list folders, so the
+    /// built-in browser's entry is hidden there; desktop keeps it.
+    #[test]
+    #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
+    fn builtin_browser_entry_is_hidden_when_the_host_has_a_system_picker() {
+        for picker in [false, true] {
+            let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+            app.ui.language = "en".into();
+            app.ui.backstage = true;
+            app.ui.backstage_page = "open".into();
+            if picker {
+                app.services.open_async = Some(Box::new(|_| {}));
+            }
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1440.0, 900.0)).build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                app,
+            );
+            h.run_steps(4);
+            assert_eq!(h.query_by_label("Browse in WordCraft…").is_some(), !picker, "system picker: {picker}");
+        }
     }
 
     #[test]

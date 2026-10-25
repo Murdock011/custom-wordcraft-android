@@ -699,3 +699,51 @@ Follow-ups:
 1. Device pass for the file browser listing on Android (storage permission route).
 2. Device pass for Read Aloud (Review tab) and the Font…/Paragraph… icons.
 3. Save Changes footer (focus handling kept), as in Update 26.
+
+## Update 28: Android open, launch recovery, Read Aloud check (2026-10-25)
+
+### 1. Built-in browser on Android
+Cause: `open_page` showed "Browse in WordCraft…" on every unix target except macOS and wasm, so Android got it. Its sandbox can't list storage (`Permission denied (os error 13)`).
+Fix: the existing signal is `Services::open_async`, which the Android host sets (and the web), and which `open_dialog` already uses to hand Browse… to the system picker. New `offers_builtin_browser` (cfg as the entry) hides the entry when `open_async` is set. Desktop does not set it, so the #576 fallback stays. The `ui.fileBrowser` command is unchanged. The entry is not the only route to the app's own files on Android: the system picker and Recent cover it, so it is simply hidden.
+Test: `backstage::tests::builtin_browser_entry_is_hidden_when_the_host_has_a_system_picker`.
+Device (`d28_open.png`): Open page shows only Browse… and Recent. PASS.
+
+### 2. Launch opened on Recover
+Findings:
+- Recover on launch was correct for what was on disk. `recovery/` held 13 `Untitled draft` records from earlier test kills (each kill leaves an unsaved copy, and nothing resolves it until Restore or Discard). Continue without restoring leaves copies in place, as `docs/recovery.md` says. Each launch offers unresolved copies once.
+- The real bug was the document icon: the phone's document icon (`ui.backstage`) and the File tab (`ui.tab`) reopened Backstage on whatever page was left. After the start-up Recover page, the icon kept opening Recover, even with no copies.
+Fix: `WordApp::reopen_backstage` (lib.rs). Opening Backstage from closed starts at Home when the left page is Recover. Recover still opens from File › Recover (`file.recover`) and at start-up with copies.
+Tests: `backstage::tests::document_icon_does_not_reopen_a_left_recover_page`. Doc line added to `docs/recovery.md`.
+Clean save: a Save through the picker removes the session's copy (checked: relaunch, `files/recovery` empty).
+Restore without save: the restored draft is still unsaved, so its copy is kept and Recover is offered again on relaunch. This is the documented behaviour (copies are kept until saved or discarded). The brief's "after Restore, relaunch → editor" is not met by design; the safe path is Restore, then Save, then relaunch.
+Device, after `pm clear`:
+- `d28_launch.png`: editor. PASS.
+- `d28_relaunch.png`: type, Save via picker, force-stop, relaunch: editor, no Recover, recovery folder empty. PASS.
+- `d28_recover.png`: type, wait for a copy, Home, `am kill`, relaunch: Recover with one copy, offered once. PASS.
+- `d28_restored.png`: Restore opens the copy text. PASS.
+- `d28_restore_relaunch.png`: relaunch without save offers Recover again (intended, see above).
+- `d28_icon_after_recover.png`: Recover dismissed with Back, then the document icon opens Home. PASS.
+- `d28_after.png`: Restore, Save via picker, relaunch: editor, folder empty. PASS.
+
+### 3. Read Aloud and Home icons (device check only)
+- Read Aloud is not in the Review tab's phone list on this build, so it was opened from Search Commands ("Read Aloud — Review › Speech"). Deviation noted.
+- `d28_readaloud.png`: full-width sheet with four large transport controls, speed slider, and the citations checkbox. Layout PASS. Playback fails on this emulator with "Read Aloud couldn't start the speech program: Permission denied (os error 13)", shown as a message. No crash.
+- `d28_icons.png`: Home sheet's Font… (Aa) and Paragraph… (line spacing) icons are readable. PASS.
+
+### Files changed
+- `crates/ui-egui/src/backstage.rs`: `offers_builtin_browser`, the Open page hook, two tests.
+- `crates/ui-egui/src/lib.rs`: `reopen_backstage`, used by `ui.tab` (File) and `ui.backstage`.
+- `docs/recovery.md`: one paragraph on the Backstage open behaviour.
+- `notes/native-spike-results.md`: this update.
+No engine change, so `docs/ENGINE-CHANGES.md` is untouched.
+
+### Tests
+- `cargo test -p wordcraft-ui-egui`: 856 passed, 0 failed, 2 ignored.
+- `cargo test -p wordcraft-engine recovery`: 20 unit + 5 integration passed (1 ignored).
+- `cargo test -p wordcraft-android`: 21 passed.
+- `cargo xtask wasm`: exit 0.
+- Clippy: not run.
+
+### Open items
+- Read Aloud playback on the emulator needs the speech program (Permission denied). Not verified end to end.
+- Restore keeps the copy until save (a design decision for the owner): a restored draft that was never saved is offered again on relaunch.

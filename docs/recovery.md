@@ -3,6 +3,8 @@
 Desktop WordCraft periodically keeps a local copy of unsaved work, including new drafts.
 File › Recover lists available copies. The page opens at startup when copies are found,
 unless a document was explicitly created or opened before the startup scan completed.
+The File tab and the phone's document icon open Backstage at Home, even after a Recover page
+was left showing: Recover is reached only through File › Recover or at startup with copies waiting.
 In particular, a window launched for New/Open keeps the requested document visible;
 older copies remain available through File › Recover. Recovery uses the regular interface
 palette so its labels and buttons stay readable in light and dark themes.
