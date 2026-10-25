@@ -50,6 +50,10 @@ import java.util.Locale
  */
 class MainActivity : GameActivity() {
     private val handler = Handler(Looper.getMainLooper())
+    /** Whether the keyboard is on screen, from the window insets. */
+    private var imeShownNow = false
+    /** Set across a rotation when the keyboard was hidden before it: the insets listener hides it again. */
+    private var keepImeHidden = false
     private var keyboardShown = false
     private lateinit var imeView: ImeView
 
@@ -74,7 +78,17 @@ class MainActivity : GameActivity() {
         val f = raw.split('\u0001', limit = 5)
         if (f.size < 5 || f[0].toLongOrNull() != sent) return
         ctxCaret = f[1].toIntOrNull() ?: return
-        ctxComp = f[2].toIntOrNull() ?: -1
+        val comp = f[2].toIntOrNull() ?: -1
+        // Rust dropped the composition (the caret moved away from it): the keyboard still has its
+        // composing span, so restart the input to make it drop that span too. Posted, so this never
+        // runs inside onCreateInputConnection.
+        if (ctxComp >= 0 && comp < 0) {
+            imeView.post {
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.restartInput(imeView)
+            }
+        }
+        ctxComp = comp
         ctxCompEnd = f[3].toIntOrNull() ?: -1
         ctxText = f[4]
     }
@@ -365,6 +379,10 @@ class MainActivity : GameActivity() {
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             // The native side gets touch positions in window pixels, not relative to the padded surface.
             nativeSetInsets(bars.left, bars.top)
+            imeShownNow = insets.isVisible(WindowInsetsCompat.Type.ime())
+            if (keepImeHidden && imeShownNow) {
+                (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0)
+            }
             WindowInsetsCompat.CONSUMED
         }
         imeView = ImeView()
@@ -469,6 +487,12 @@ class MainActivity : GameActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         reportNight(newConfig)
+        // Rotation makes Android show the keyboard again for the focused canvas, even after Back hid it.
+        // If the keyboard was hidden before the rotation, keep it hidden for a short while (insets listener).
+        if (!imeShownNow) {
+            keepImeHidden = true
+            handler.postDelayed({ keepImeHidden = false }, 1500)
+        }
     }
 
     private fun reportNight(c: Configuration) {

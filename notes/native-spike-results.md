@@ -960,3 +960,59 @@ Screenshots (`notes/mockups/`, one per category): `options-touch-general.png`, `
 Known gaps:
 - Not run on the emulator this round.
 - The Read Aloud speed slider rail is very faint on the phone (theme colour, not a size issue); left as is.
+
+## Update 35: Stray underline, rotation keyboard, dark cold start (2026-10-25)
+
+Status: partly fixed. Nothing committed, nothing pushed.
+
+### 1. Stray underline (composition held outside the document)
+Finding: the "reason" underline in Update 33 was a Gboard composing span created by our `setComposingRegion` path. `recompose()` removed the word from the document and held it as a Rust-side composition, drawn as preedit. Only Key, Commit or Finish ended it, and a caret move did not, so a tap elsewhere could leave the word out of the document. That is a text change from a tap.
+Not reproduced on the emulator. Gboard sent no region on the tap tests; it sent `finishComposingText` (kind 2) on one tap and `commitText` for typed letters. The "Rent is the" line was not revisited.
+Fix (design): the composition now stays in the document. A region marks the words as a span (`ime::Span`: start, caret, text) and deletes nothing. Compose, Commit and Delete edit the span with `DeleteSurrounding` + `Commit` events (`ime::replace_ops`). Nothing is held outside the document, so there is nothing to write back before a caret move, Save, Save As, Close, Open, undo, formatting, the recovery flush or backgrounding. Those only drop the span marker, and the text stays.
+- Span validity: `ime::sync` keeps the span only while the caret is where it was left and the text matches. A fresh span is read again from the document after its edit, so autocorrect length changes are handled.
+- Race guard: if a tap moves the caret in the same frame that IME events were queued, the frame drops the queued deletions and keys (typed text is kept and lands at the caret). The span is dropped.
+- Kotlin: when Rust drops a composition that Kotlin still has open, `pullContext` posts `restartInput`. Only then, so the Update 31 flicker does not return.
+- Ceiling: the composing span is no longer underlined, because the text is plain document text. Add a span underline in canvas.rs later.
+Tests (`cargo test -p wordcraft-android`, 25 pass): `a_region_then_a_caret_move_leaves_the_text_alone`, `a_region_then_a_save_reads_the_text_that_is_there`, `a_region_then_composing_replaces_the_word_once`, `a_region_then_finish_leaves_the_text_alone`, `a_fresh_span_is_read_again_from_the_document`, `a_span_holds_only_while_its_text_and_caret_are_where_they_were`, `deleting_across_the_span_keeps_the_text_before_it`, plus the offset and context tests. These test the pure functions with a small document model that applies the same events.
+Device: Gboard `q` commits as `commitText`; Backspace sends `finishComposingText` then `DeleteSurrounding(1,0)`. One test edit left "Thursdaqy" and Backspace did not restore it; undo restored "Thursday". The cause is not established. Recorded as an open item below.
+Flicker recount (5 in-text taps, keyboard open): 0 hides, 0 shows (the `setSoftKeyboardActive` and `onRequestHide/Show` logs are empty).
+
+### 2. Rotation keyboard
+Cause: Back hides the keyboard without changing Rust's "wants keyboard" state, so the poll does not re-show it. Android re-shows the focused ImeView on rotation.
+Fix: `MainActivity.kt`. The insets listener tracks `imeShownNow`. `onConfigurationChanged` sets `keepImeHidden` when the keyboard was hidden, for 1.5 s, and the listener hides it again.
+Device: Back hides the keyboard (`mInputShown=false`); landscape and back to portrait keep it hidden. Screenshots `u35_rot_land.png`, `u35_rot_back.png`. Ceiling: the keyboard flashes briefly during rotation before it is hidden again.
+
+### 3. Dark mode cold start
+Device: `cmd uimode night yes`, force-stop, launch. At about 1.5 s the Recover page is already dark with light status icons, no white flash (`u35_dark_cold_early.png`). `u35_light_again.png` was taken after `night no`, not inspected.
+
+### Tests
+- `cargo test -p wordcraft-android`: 25 passed.
+- `cargo test -p wordcraft-ui-egui`: 867 passed, 2 ignored; integration 10 passed.
+- `cargo xtask wasm`: ok (16 crates).
+
+### Open items
+- The "Thursdaqy" test edit after a Gboard `q` plus Backspace is unexplained. Check whether Kotlin's `ctxCaret` disagreed with Rust's caret.
+- The "Rent is the" line was not rechecked.
+- The composing span has no underline (see above).
+- Emulator restarted once (wc35, cold boot, `-no-snapshot-load`).
+
+### Follow-up: "Thursdaqy" (Backspace after typing)
+Five deterministic Gboard cases (tap spot, Gboard `q`, Gboard Backspace; expected original text):
+
+| Case | Spot | HEAD 96db16b3 | Span build (this round) |
+|---|---|---|---|
+| A | mid-word "Thurs|day" | intact (screenshot) | intact (screenshot; log: erase before=1, Rust caret 15 to 14) |
+| B | word end | intact (screenshot) | intact (log: erase before=1, Rust caret back to 15) |
+| C | after a space | intact (screenshot) | intact (log: erase before=1, Rust caret back to 17) |
+| D | paragraph start | intact (screenshot) | intact (screenshot; log: caret 0 to 1 to 0) |
+| E | paragraph 2, mid-word | intact (screenshot) | intact (log: caret 55 to 54) |
+
+Result: NOT a regression. HEAD and this round both keep the text in all five cases. The "Thursdaqy" state was not reproduced. The earlier run was made right after `input text` (synthetic key events, which Kotlin's sendKeyEvent does not mirror), with the IME attached to the fallback connection (`mServedView=null`). That combination was not repeated, and no root cause is established. No fix was applied for it. Host tests for commit-then-delete at mid-word, word end, and after a tap were not added; the open item stays open.
+
+Also checked on this build: a sentence typed at a mid-word caret with a space and Enter ("ab c" plus Enter) went in at the caret and split the paragraph there (screenshot `u35_fix_sentence.png`). Undo restored the paragraph (`u35_fix_undone.png`). Five-tap flicker recount: 0 hides, 0 shows.
+
+Temporary `wc-ime` logs removed (`grep -c "TEMP\|wc-ime"` is 0). The clean HEAD worktree was removed.
+
+Tests (final): `cargo test -p wordcraft-android` 25 passed; `cargo test -p wordcraft-ui-egui` 867 passed, 2 ignored, integration 10 passed; `cargo xtask wasm` ok (16 crates).
+
+Open items: (1) the "Thursdaqy" state, root cause unknown; reproduce with `input text` then Back and a re-tap, with logs. (2) host tests for the commit-then-delete cases above. (3) the "Rent is the" line was not rechecked.
