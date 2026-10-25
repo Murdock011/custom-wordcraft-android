@@ -18,7 +18,8 @@
 WordCraft a word processor (the document model, editing commands, layout and pagination,
 .docx and other file formats, proofing, rendering and PDF) is the original WordCraft engine,
 unchanged in purpose. What this fork adds is a phone interface around it and the Android plumbing
-to host it.
+to host it. The few changes it does make below the interface are listed, with the reason for
+each, in [docs/ENGINE-CHANGES.md](docs/ENGINE-CHANGES.md).
 
 An experiment in running [WordCraft](https://github.com/storytold/wordcraft), an open-source,
 Rust word processor by the ArtCraft team, as a **native Android app**: the same document engine
