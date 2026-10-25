@@ -254,7 +254,22 @@ fn phone_page(app: &mut WordApp, ui: &mut Ui) {
         return;
     }
     ui.add_space(8.0);
-    pane_content(app, ui, &current);
+    // Update 34: every control of a phone category is a 48 pt touch target (see `phone::touch_style`).
+    ui.scope(|ui| {
+        crate::phone::touch_style(ui);
+        pane_content(app, ui, &current);
+    });
+}
+
+/// A text field's width: `want` on the desktop; on a phone no wider than the row it sits in, so the
+/// Apply or Add button beside it wraps instead of running off the screen.
+fn field_width(ui: &Ui, want: f32) -> f32 {
+    if crate::phone::active(ui.ctx()) { want.min(ui.available_width()) } else { want }
+}
+
+/// A small button in a row (Remove): egui's small button on the desktop, a 48 pt button on the phone.
+fn row_button(ui: &mut Ui, text: &str) -> egui::Response {
+    if crate::phone::active(ui.ctx()) { ui.button(text) } else { ui.small_button(text) }
 }
 
 fn section(ui: &mut Ui, title: &str) {
@@ -316,7 +331,8 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
         ui.label(tl!("User name:"));
         let mut n = app.session.author.clone();
         let protected = wordcraft_engine::cmd::protect::enforced(&app.session.doc);
-        if ui.add_enabled(!protected, egui::TextEdit::singleline(&mut n).desired_width(260.0)).changed() && !protected {
+        let name_field = crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut n).desired_width(260.0));
+        if ui.add_enabled(!protected, name_field).changed() && !protected {
             app.session.author = n;
         }
         ui.end_row();
@@ -324,9 +340,10 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
         let mut i = app.session.initials.clone();
         let hint = app.session.user_initials();
         if ui
-            .add(
+            .add(crate::phone::touch_edit(
+                ui,
                 egui::TextEdit::singleline(&mut i).desired_width(80.0).char_limit(wordcraft_engine::cmd::options::MAX_INITIALS_CHARS).hint_text(hint),
-            )
+            ))
             .changed()
         {
             set(app, json!({"initials": i}));
@@ -412,7 +429,12 @@ fn dictionaries(app: &mut WordApp, ui: &mut Ui) {
     let mut folder = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| saved.clone());
     ui.label(tl!("Dictionaries folder:"));
     ui.horizontal_wrapped(|ui| {
-        let r = ui.add(egui::TextEdit::singleline(&mut folder).desired_width(320.0).hint_text(tl!("Not set: the system's usual places")));
+        let w = field_width(ui, 320.0);
+        let field = crate::phone::touch_edit(
+            ui,
+            egui::TextEdit::singleline(&mut folder).desired_width(w).hint_text(tl!("Not set: the system's usual places")),
+        );
+        let r = ui.add(field);
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         let changed = folder.trim() != saved;
         if ui.add_enabled(changed, egui::Button::new(tl!("Apply"))).clicked() || (enter && changed) {
@@ -492,7 +514,7 @@ fn custom_dictionary(app: &mut WordApp, ui: &mut Ui) {
                     ui.set_min_width(220.0);
                     ui.add(egui::Label::new(w.as_str()).truncate());
                 });
-                if ui.small_button(tl!("Remove")).clicked() {
+                if row_button(ui, tl!("Remove")).clicked() {
                     set(app, json!({"removeWords": [w]}));
                 }
             });
@@ -501,7 +523,12 @@ fn custom_dictionary(app: &mut WordApp, ui: &mut Ui) {
     let id = egui::Id::new("options_dictionary_new");
     let mut word = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_default();
     ui.horizontal_wrapped(|ui| {
-        let r = ui.add(egui::TextEdit::singleline(&mut word).desired_width(220.0).char_limit(MAX_WORD_CHARS).hint_text(tl!("New word")));
+        let w = field_width(ui, 220.0);
+        let field = crate::phone::touch_edit(
+            ui,
+            egui::TextEdit::singleline(&mut word).desired_width(w).char_limit(MAX_WORD_CHARS).hint_text(tl!("New word")),
+        );
+        let r = ui.add(field);
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         let w = word.trim().to_string();
         let ok = !w.is_empty() && !w.chars().any(char::is_whitespace);
@@ -565,6 +592,10 @@ fn accessibility(app: &mut WordApp, ui: &mut Ui) {
     let mut rate = app.session.read_aloud.rate();
     ui.horizontal_wrapped(|ui| {
         ui.label(tl!("Speed"));
+        // On a phone the slider takes a usable length; the desktop keeps egui's default.
+        if crate::phone::active(ui.ctx()) {
+            ui.spacing_mut().slider_width = field_width(ui, 200.0);
+        }
         let r = ui.add(egui::Slider::new(&mut rate, MIN_RATE..=MAX_RATE).step_by(0.05).custom_formatter(|v, _| format!("{v:.2}×")));
         if r.changed() {
             let _ = app.run("readAloud.speed", json!({"value": rate}));
@@ -592,14 +623,22 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
     }
     ui.add_space(8.0);
     section(ui, "Display");
-    egui::Grid::new("options_display").num_columns(2).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
+    // On a phone each label sits above its control (one column), so a control never runs off the screen.
+    let stacked = crate::phone::active(ui.ctx());
+    egui::Grid::new("options_display").num_columns(if stacked { 1 } else { 2 }).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
         ui.label(tl!("Recent documents to show:"));
+        if stacked {
+            ui.end_row();
+        }
         let mut n = app.ui.recent_shown();
         if ui.add(egui::DragValue::new(&mut n).range(0..=crate::MAX_RECENT).speed(0.2)).changed() {
             app.ui.recent_count = n;
         }
         ui.end_row();
         ui.label(tl!("Measurement units:"));
+        if stacked {
+            ui.end_row();
+        }
         // The user's choice, else the region's (#838): Automatic follows the region.
         let units = app.session.units();
         let auto = app.session.prefs.units.is_none();
@@ -619,6 +658,9 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
         // The region new documents, units and the decimal separator follow; Automatic is the
         // system's (#838).
         ui.label(tl!("Region:"));
+        if stacked {
+            ui.end_row();
+        }
         let chosen = app.session.prefs.region.clone();
         let system = &app.session.system_region;
         let system_tag = if system.territory.is_empty() { system.language.clone() } else { format!("{}-{}", system.language, system.territory) };
@@ -684,7 +726,9 @@ fn templates_folder(app: &mut WordApp, ui: &mut Ui) {
     ui.label(tl!("User templates:"));
     ui.horizontal_wrapped(|ui| {
         let hint = default.clone().unwrap_or_else(|| tl!("Not set").to_string());
-        let r = ui.add(egui::TextEdit::singleline(&mut folder).desired_width(320.0).hint_text(hint));
+        let w = field_width(ui, 320.0);
+        let field = crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut folder).desired_width(w).hint_text(hint));
+        let r = ui.add(field);
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         let changed = folder.trim() != saved;
         if ui.add_enabled(changed, egui::Button::new(tl!("Apply"))).clicked() || (enter && changed) {
@@ -714,7 +758,7 @@ fn theme_picker(app: &mut WordApp, ui: &mut Ui) {
     use crate::theme::Appearance;
     ui.horizontal_wrapped(|ui| {
         ui.label(tl!("Interface theme:"));
-        egui::ComboBox::from_id_salt("interface_theme").selected_text(tl!(app.ui.theme.label())).width(220.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("interface_theme").selected_text(tl!(app.ui.theme.label())).width(field_width(ui, 220.0)).show_ui(ui, |ui| {
             for a in Appearance::ALL {
                 if ui.selectable_label(app.ui.theme == a, tl!(a.label())).clicked() {
                     let _ = app.run("ui.theme", json!({"value": a.code()}));
@@ -734,7 +778,7 @@ fn interface_size_picker(app: &mut WordApp, ui: &mut Ui) {
     let selected = size.percent().map_or_else(|| auto.clone(), |pct| format!("{pct}%"));
     ui.horizontal_wrapped(|ui| {
         ui.label(tl!("Interface size:"));
-        egui::ComboBox::from_id_salt("interface_size").selected_text(selected).width(220.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("interface_size").selected_text(selected).width(field_width(ui, 220.0)).show_ui(ui, |ui| {
             if ui.selectable_label(size.is_auto(), auto).clicked() {
                 let _ = app.run("ui.interfaceSize", json!({"value": "auto"}));
             }
@@ -760,13 +804,16 @@ fn animations_picker(app: &mut WordApp, ui: &mut Ui) {
     use crate::theme::Animations;
     ui.horizontal_wrapped(|ui| {
         ui.label(tl!("Animation effects:"));
-        egui::ComboBox::from_id_salt("animation_effects").selected_text(tl!(app.ui.animations.label())).width(220.0).show_ui(ui, |ui| {
-            for a in Animations::ALL {
-                if ui.selectable_label(app.ui.animations == a, tl!(a.label())).clicked() {
-                    let _ = app.run("ui.animations", json!({"value": a.code()}));
+        egui::ComboBox::from_id_salt("animation_effects").selected_text(tl!(app.ui.animations.label())).width(field_width(ui, 220.0)).show_ui(
+            ui,
+            |ui| {
+                for a in Animations::ALL {
+                    if ui.selectable_label(app.ui.animations == a, tl!(a.label())).clicked() {
+                        let _ = app.run("ui.animations", json!({"value": a.code()}));
+                    }
                 }
-            }
-        });
+            },
+        );
     });
     note(ui, "Smooth scrolling and zooming, and menus and buttons that fade in. Off shows every change at once.");
     if app.ui.animations == Animations::System {
@@ -789,7 +836,7 @@ fn language_picker(app: &mut WordApp, ui: &mut Ui) {
     let current = if app.ui.language == AUTO { auto_label.clone() } else { Lang::from_pref(&app.ui.language).name().to_string() };
     ui.horizontal_wrapped(|ui| {
         ui.label(tl!("Interface language:"));
-        egui::ComboBox::from_id_salt("interface_language").selected_text(current).width(220.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("interface_language").selected_text(current).width(field_width(ui, 220.0)).show_ui(ui, |ui| {
             if ui.selectable_label(app.ui.language == AUTO, auto_label.as_str()).clicked() {
                 let _ = app.run("ui.language", json!({"value": AUTO}));
             }
@@ -899,7 +946,7 @@ fn numeral_picker(app: &mut WordApp, ui: &mut Ui) {
     ui.horizontal_wrapped(|ui| {
         ui.label(tl!("Numerals:"));
         let mut sel = app.session.view.numeral;
-        egui::ComboBox::from_id_salt("numerals").selected_text(tl!(sel.label())).width(220.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("numerals").selected_text(tl!(sel.label())).width(field_width(ui, 220.0)).show_ui(ui, |ui| {
             for m in [NumeralMode::Arabic, NumeralMode::Hindi, NumeralMode::Context, NumeralMode::System] {
                 ui.selectable_value(&mut sel, m, tl!(m.label()));
             }
@@ -1434,6 +1481,31 @@ mod phone_tests {
         h.run_steps(3);
         assert!(!phone_category_open(&h.ctx), "Escape returns to the list");
         assert!(h.state().ui.backstage, "Escape left Options open");
+    }
+
+    /// Update 34: every control on every phone category is a 48 pt touch target: checkboxes, radio
+    /// buttons, combo boxes, buttons, text fields, number boxes and sliders.
+    #[test]
+    fn every_phone_category_control_is_48_pt_tall() {
+        use egui::accesskit::Role;
+        let roles = [Role::CheckBox, Role::RadioButton, Role::ComboBox, Role::Button, Role::TextInput, Role::SpinButton, Role::Slider];
+        for id in PANES {
+            let mut h = options(412.0);
+            let label = crate::i18n::tr(crate::i18n::Lang::from_pref("en"), super::pane_label(id));
+            h.get_by_role_and_label(Role::Button, label).click();
+            h.run_steps(4);
+            assert!(phone_category_open(&h.ctx), "{label} opened");
+            let mut checked = 0;
+            for role in roles {
+                for node in h.query_all_by_role(role) {
+                    let r = node.rect();
+                    checked += 1;
+                    assert!(r.height() >= 47.9, "{label}: {role:?} is {} pt tall (rect {r:?})", r.height());
+                    assert!(r.left() >= 0.0 && r.right() <= 412.5, "{label}: {role:?} runs off the screen (rect {r:?})");
+                }
+            }
+            assert!(checked > 0 || id == "agents", "{label} has controls to check");
+        }
     }
 
     /// Update 32: the desktop keeps two columns: the category list beside the settings, no Back row.
