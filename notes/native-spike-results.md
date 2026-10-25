@@ -546,3 +546,43 @@ Follow-ups:
 2. Finish the inline rows listed above (Cancel-only rows need a single-button footer).
 3. Device pass for Picture Size/Crop, Split Cells, Table Properties, Font, Paragraph; keyboard-open check.
 4. file_browser.rs, read_aloud.rs, zotero alert still desktop windows on phone.
+
+## Update 24: Phone dialogs finished (2026-10-25)
+Choices:
+- Number boxes (DragValue): kept DragValue, not a numeric text field. Its inner text edit takes its min height from `interact_size`, which the phone sheet sets to 48 pt, so no new helper was needed. Tap opens the editor; drag still changes the value. Not done: a number keyboard (the field uses the default keyboard). Test `phone_dialog_number_boxes_are_48_pt_tall` (Insert Table, SpinButton/TextInput roles, plus OK height).
+- Footer rows: `dialogs::footer_row` (up to three equal buttons, 48 pt, primary optional, Enter presses primary) and `footer_single` (Cancel-only). Desktop keeps its inline rows.
+
+Converted to the pinned footer (inline path kept for desktop):
+- Review: Restrict Editing OK/Cancel and Stop Protection OK/Cancel (dialogs_review.rs).
+- Discard Recovery Cancel/Discard (dialogs.rs).
+- Cancel-only rows: dialogs_layout.rs (two dialogs at the former lines 392 and 562).
+- Ribbon rename row OK/Cancel (dialogs_ribbon.rs).
+- Developer properties OK/Cancel (dialogs_controls.rs) - from Update 23.
+
+Still inline (not converted, with reason):
+- Save Changes (dialogs.rs): focus-based keyboard flow (#861, #1597: Save has focus, Enter saves, arrows move focus). Converting needs focus work in the footer; follow-up.
+- Notes footnote/endnote (dialogs_notes.rs): Apply/Cancel/Insert, three buttons with a macOS order. Follow-up.
+- Styles rename OK (dialogs_templates.rs): OK beside a name field. Follow-up.
+
+Device (emulator-5554, WordCraft focus checked before each shot, Word force-stopped):
+- d24_00_editor.png: editor.
+- d24_01_table_inserted.png: 5 x 2 table inserted (Insert > Table, OK pinned).
+- d24_02_tabs_table.png: tab list with Table tab (appears when the caret is in a table).
+- d24_03_table_tab.png, d24_04_table_tab_scrolled.png: Table tab list.
+- d24_05_split_cells.png: Split Cells sheet. PASS: title row with X, number boxes 48 pt, the disabled Merge check box, Cancel | OK pinned.
+- d24_06_table_tab_more.png: Table tab, further down.
+- d24_07_table_props.png: Table Properties, full-screen page (content over 85% of the screen). PASS: no horizontal overflow; two-column rows fit at 411 pt; Cancel | OK pinned.
+- NOT RUN: Picture > Size, Picture > Crop (no picture inserted; the gallery picker was not tried, the adb push route was not used). Home > Font and Home > Paragraph launchers (not reached). Keyboard-open check over a dialog text field (not run). file_browser.rs, read_aloud.rs, zotero alert sheet host (not started).
+
+Tests (this update):
+- cargo test -p wordcraft-ui-egui: 850 passed, 0 failed, 2 ignored.
+- cargo test -p wordcraft-android: 10 passed.
+- cargo xtask wasm: ok (16 crates).
+- Clippy: not run.
+
+Follow-ups:
+1. Picture Size and Crop on the phone (push a PNG with adb, Insert > Picture, select, Picture tab).
+2. Home > Font and Home > Paragraph launchers on the phone.
+3. Keyboard-open check over a dialog text field.
+4. Save Changes to the footer with focus-based keyboard handling kept; Notes footnote row; Styles rename row.
+5. file_browser.rs, read_aloud.rs, zotero alert to the sheet host on phone.

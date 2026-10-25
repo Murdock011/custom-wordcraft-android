@@ -1667,6 +1667,39 @@ pub(crate) fn ok_cancel_responses(ui: &mut Ui, draw_ok: impl FnOnce(&mut Ui) -> 
     }
 }
 
+/// Up to three buttons side by side in the phone sheet's pinned footer, equal widths, each 48 pt
+/// tall, in `labels` order. `primary` is the accent button; Enter presses it when `enter` is set.
+/// Returns the index clicked (outer None: no sheet footer is open, so the caller lays out inline).
+pub(crate) fn footer_row(ui: &mut Ui, labels: &[&str], primary: usize, enter: bool) -> Option<Option<usize>> {
+    let footer = crate::phone::footer(ui.ctx())?;
+    let mut fui = ui.new_child(egui::UiBuilder::new().max_rect(footer).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    fui.set_clip_rect(footer);
+    let r = footer.shrink2(vec2(16.0, 12.0));
+    let n = labels.len().max(1) as f32;
+    let gap = 8.0;
+    let w = ((r.width() - gap * (n - 1.0)) / n).max(0.0);
+    let h = crate::phone::TOUCH_H;
+    let mut clicked = None;
+    for (i, label) in labels.iter().enumerate() {
+        let x = r.left() + i as f32 * (w + gap);
+        let rect = egui::Rect::from_min_size(egui::pos2(x, r.top()), vec2(w, h));
+        let btn = if i == primary { crate::widgets::primary_button(&fui, *label) } else { egui::Button::new(label.to_string()) };
+        if fui.put(rect, btn.min_size(vec2(w, h))).clicked() {
+            clicked = Some(i);
+        }
+    }
+    if enter && clicked.is_none() && fui.input(|i| i.key_pressed(egui::Key::Enter)) {
+        clicked = Some(primary);
+    }
+    Some(clicked)
+}
+
+/// A single button (a Cancel-only dialog) in the phone sheet's pinned footer: true when it is pressed.
+/// None when no sheet footer is open.
+pub(crate) fn footer_single(ui: &mut Ui, label: &str) -> Option<bool> {
+    footer_row(ui, &[label], 0, false).map(|clicked| clicked.is_some())
+}
+
 /// The OK and Cancel pair in the phone sheet's pinned footer: Cancel left, OK right, each half the
 /// width and 48 pt tall. `ok_enabled` greys OK out. `enter` and `escape` say whether those keys
 /// press OK and Cancel. None when no sheet footer is open, so the caller lays its buttons out inline.
@@ -2773,8 +2806,17 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         Dialog::DiscardRecovery { name, .. } => {
             ui.label(crate::i18n::fmt(tl!("Discard the recovery copy of {name}?"), &[("name", name)]));
             ui.label(tl!("This cannot be undone. Your original file stays unchanged."));
-            let answer = ui
-                .horizontal(|ui| {
+            let pinned = footer_row(ui, &[tl!("Cancel"), tl!("Discard")], 1, false);
+            let answer = if let Some(clicked) = pinned {
+                if clicked == Some(0) || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    Some("cancel")
+                } else if clicked == Some(1) {
+                    Some("discard")
+                } else {
+                    None
+                }
+            } else {
+                ui.horizontal(|ui| {
                     let cancel = ui.button(tl!("Cancel"));
                     let discard = ui.button(tl!("Discard"));
                     if cancel.clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -2785,7 +2827,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                         None
                     }
                 })
-                .inner;
+                .inner
+            };
             if let Some(answer) = answer {
                 app.dialog = Some(d.clone());
                 let result = app.run("ui.recoveryDiscard", json!({"answer": answer}));

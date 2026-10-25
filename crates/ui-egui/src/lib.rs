@@ -4936,6 +4936,31 @@ mod tests {
         }
     }
 
+    /// Update 24: the number boxes of a phone dialog (Insert Table's columns and rows) are 48 pt
+    /// tall, and the dialog's OK and Cancel are pinned in the footer.
+    #[test]
+    fn phone_dialog_number_boxes_are_48_pt_tall() {
+        let mut a = app();
+        a.dialog = dialogs::Dialog::open("insertTable", &mut a);
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(400.0, 800.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let boxes: Vec<_> = h.query_all(egui_kittest::kittest::By::new().role(egui::accesskit::Role::SpinButton)).map(|n| n.rect()).collect();
+        let fields: Vec<_> = h.query_all(egui_kittest::kittest::By::new().role(egui::accesskit::Role::TextInput)).map(|n| n.rect()).collect();
+        let all: Vec<_> = boxes.into_iter().chain(fields).collect();
+        assert!(all.len() >= 2, "the Insert Table dialog has its number boxes: {all:?}");
+        for f in &all {
+            assert!(f.height() >= 48.0, "a number box is 48 pt tall on the phone: {f:?}");
+        }
+        assert!(h.get_by_label("OK").rect().height() >= 48.0);
+    }
+
     /// Update 22: with the window short (the keyboard up), the pinned buttons stay on screen.
     #[test]
     fn phone_dialog_buttons_stay_on_a_short_screen() {

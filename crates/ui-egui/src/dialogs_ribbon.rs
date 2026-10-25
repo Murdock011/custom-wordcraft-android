@@ -271,22 +271,38 @@ fn ribbon_page(app: &mut WordApp, ui: &mut Ui, f: &mut RibbonForm, h: f32) {
         });
         let mut done = None;
         if let Some(name) = &mut f.renaming {
+            // On the phone the buttons go to the sheet's pinned footer; elsewhere they sit in the row.
+            let pinned = crate::phone::footer(ui.ctx()).is_some();
+            let mut enter = false;
+            let mut inline = None;
             ui.horizontal(|ui| {
                 ui.label(tl!("Name:"));
                 let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(name)).desired_width(140.0));
-                let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                // macOS puts Cancel before OK.
-                let mac = cfg!(target_os = "macos");
-                if mac && ui.button(tl!("Cancel")).clicked() {
-                    done = Some(None);
-                }
-                if ui.button(tl!("OK")).clicked() || enter {
-                    done = Some(Some(name.clone()));
-                }
-                if !mac && ui.button(tl!("Cancel")).clicked() {
-                    done = Some(None);
+                enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if !pinned {
+                    // macOS puts Cancel before OK.
+                    let mac = cfg!(target_os = "macos");
+                    if mac && ui.button(tl!("Cancel")).clicked() {
+                        inline = Some(None);
+                    }
+                    if ui.button(tl!("OK")).clicked() || enter {
+                        inline = Some(Some(name.clone()));
+                    }
+                    if !mac && ui.button(tl!("Cancel")).clicked() {
+                        inline = Some(None);
+                    }
                 }
             });
+            if pinned {
+                match crate::dialogs::footer_row(ui, &[tl!("Cancel"), tl!("OK")], 1, false) {
+                    Some(Some(0)) => done = Some(None),
+                    Some(Some(1)) => done = Some(Some(name.clone())),
+                    _ if enter => done = Some(Some(name.clone())),
+                    _ => {}
+                }
+            } else {
+                done = inline;
+            }
         }
         if let Some(answer) = done {
             f.renaming = None;

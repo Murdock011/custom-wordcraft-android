@@ -668,11 +668,12 @@ fn setup_ui(app: &mut WordApp, ui: &mut Ui, st: &mut RestrictPane) {
     } else {
         ui.label(egui::RichText::new(tl!("The password is optional; without it anyone can stop the protection.")).small());
         passwords(ui, st, true);
+        let pinned = crate::dialogs::footer_row(ui, &[tl!("Cancel"), tl!("OK")], 1, false);
         ui.horizontal(|ui| {
             // macOS puts Cancel before OK.
             let mac = cfg!(target_os = "macos");
-            let mut cancel = mac && ui.button(tl!("Cancel")).clicked();
-            if ui.button(tl!("OK")).clicked() {
+            let mut cancel = pinned == Some(Some(0)) || (mac && pinned.is_none() && ui.button(tl!("Cancel")).clicked());
+            if pinned == Some(Some(1)) || (pinned.is_none() && ui.button(tl!("OK")).clicked()) {
                 if st.password != st.confirm {
                     st.message = tl!("The passwords don't match.").to_string();
                     st.confirm.as_mut_string().clear();
@@ -695,7 +696,7 @@ fn setup_ui(app: &mut WordApp, ui: &mut Ui, st: &mut RestrictPane) {
                     st.confirm = Password::default();
                 }
             }
-            cancel |= !mac && ui.button(tl!("Cancel")).clicked();
+            cancel |= !mac && pinned.is_none() && ui.button(tl!("Cancel")).clicked();
             if cancel {
                 st.asking = false;
                 st.password = Password::default();
@@ -756,14 +757,15 @@ fn enforced_ui(app: &mut WordApp, ui: &mut Ui, st: &mut RestrictPane, mode: &str
     } else {
         ui.label(egui::RichText::new(tl!("Type the password to stop the protection.")).small());
         passwords(ui, st, false);
+        let pinned = crate::dialogs::footer_row(ui, &[tl!("Cancel"), tl!("OK")], 1, false);
         ui.horizontal(|ui| {
             // macOS puts Cancel before OK.
             let mac = cfg!(target_os = "macos");
-            let cancel_first = mac && ui.button(tl!("Cancel")).clicked();
-            if ui.button(tl!("OK")).clicked() {
+            let cancel_first = pinned == Some(Some(0)) || (mac && pinned.is_none() && ui.button(tl!("Cancel")).clicked());
+            if pinned == Some(Some(1)) || (pinned.is_none() && ui.button(tl!("OK")).clicked()) {
                 stop(app, st);
             }
-            if cancel_first || (!mac && ui.button(tl!("Cancel")).clicked()) {
+            if cancel_first || (!mac && pinned.is_none() && ui.button(tl!("Cancel")).clicked()) {
                 st.asking = false;
                 st.password = Password::default();
             }

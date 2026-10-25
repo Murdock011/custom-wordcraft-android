@@ -390,9 +390,10 @@ fn manual_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ManualForm) -> bool {
     });
     ui.add_space(8.0);
     let mut close = false;
+    let pinned = crate::dialogs::footer_single(ui, tl!("Cancel"));
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button(tl!("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            if (pinned.is_none() && ui.button(tl!("Cancel")).clicked()) || pinned == Some(true) || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 close = true;
             }
             if ui.button(tl!("No")).clicked() {
@@ -560,9 +561,10 @@ fn envelopes_ui(app: &mut WordApp, ui: &mut Ui, f: &mut EnvelopeForm) -> bool {
     let ready = !f.delivery.trim().is_empty();
     ui.add_space(8.0);
     let (mut add, mut new, mut cancel) = (false, false, false);
+    let pinned = crate::dialogs::footer_single(ui, tl!("Cancel"));
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            cancel = ui.button(tl!("Cancel")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape));
+            cancel = (pinned.is_none() && ui.button(tl!("Cancel")).clicked()) || pinned == Some(true) || ui.input(|i| i.key_pressed(egui::Key::Escape));
             new = ui.add_enabled(ready, egui::Button::new(tl!("New Document"))).clicked();
             add = ui.add_enabled(ready, crate::widgets::primary_button(ui, tl!("Add to Document"))).clicked();
         });
