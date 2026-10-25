@@ -1036,3 +1036,15 @@ Screenshots (`notes/mockups/`, 412 x 915 pt at 2.625x, headless; the Recover sho
 Checked by eye: switches read as on/off, labels are left, help text sits under its row, nothing runs off the right edge.
 
 Known, not changed here: the row labels are indented 16 pt from the section headings (the Android settings inset). Not run on the emulator this round. Clippy not run.
+
+## Update 37: new launcher icon (2026-10-25)
+Scope: the Android launcher icon only. No Rust or UI change.
+
+1. Source: `packaging/android-native/icon-source/custom-wordcraft-icon.svg` (768 viewBox, embeds raster PNGs, so it cannot be a vector drawable). Rendered with Inkscape.
+2. Background: `drawable/ic_launcher_background.xml` is a solid `#3B5BDB`, sampled from the tile render.
+3. Foreground: `mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}/ic_launcher_foreground.png` at 108/162/216/324/432 px. The artwork's minimal enclosing circle is scaled to radius 33 of 108 units (inside the 66 dp safe zone); the rest of each canvas is the same blue, so the tile's rounded corners show no seam. The old `drawable/ic_launcher_foreground.xml` is removed.
+4. Monochrome: `drawable/ic_launcher_monochrome.xml` and its `<monochrome>` entry are removed, so the old page does not show in themed icons.
+5. Adaptive XMLs (`mipmap-anydpi-v26/ic_launcher.xml`, `ic_launcher_round.xml`) point at `@mipmap/ic_launcher_foreground`.
+6. minSdk is 29, so no legacy `mipmap-*/ic_launcher.png` files were needed.
+
+Checks: `packaging/android-native/build-native.sh x86_64` passes. `cargo xtask assets` fails on tracked `notes/mockups/*.png` from Update 36 that have no ATTRIBUTION rows; that failure predates this update. Preview circle and rounded-square masks checked by eye: all artwork visible.
