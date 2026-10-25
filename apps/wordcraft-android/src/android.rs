@@ -126,6 +126,20 @@ pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nati
     files::opened(name, path, uri);
 }
 
+/// Whether WordCraft opens a document named `name` with MIME type `mime` (`files::accepts_document`).
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeAccepts<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    name: JString<'local>,
+    mime: JString<'local>,
+) -> jboolean {
+    let name: String = env.with_env(|env| name.try_to_string(env)).resolve::<jni::errors::ThrowRuntimeExAndDefault>();
+    let mime: String = env.with_env(|env| mime.try_to_string(env)).resolve::<jni::errors::ThrowRuntimeExAndDefault>();
+    files::accepts_document(&name, &mime) as jboolean
+}
+
 /// The activity is being backgrounded: the next frame copies unsaved work to the recovery store.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]

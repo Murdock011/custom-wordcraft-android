@@ -131,8 +131,9 @@ class MainActivity : GameActivity() {
                 keyboardShown = want
                 if (want) showKeyboard() else hideKeyboard()
             } else if (want && !imeView.isFocused) {
-                // A tap on the game surface takes focus (and the keyboard connection) from ImeView.
-                showKeyboard()
+                // A tap on the game surface takes focus from ImeView. Take it back only: restarting the input
+                // or asking for the keyboard again on every tap is what made it hide and reappear.
+                imeView.requestFocus()
             }
             handler.postDelayed(this, 150)
         }
@@ -327,6 +328,49 @@ class MainActivity : GameActivity() {
         clipboard.addPrimaryClipChangedListener(clipListener)
         reportNight(resources.configuration)
         handler.post(keyboardPoll)
+        // A restored instance (process death) must not reopen the document it was launched with.
+        if (savedInstanceState == null) handleIntent(intent)
+    }
+
+    // singleTask: a document opened from another app while WordCraft runs arrives here.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    /** Open with (VIEW, EDIT) and Share (SEND) from the manifest's filters: a document another app sent. */
+    private fun handleIntent(intent: Intent) {
+        val uri = when (intent.action) {
+            Intent.ACTION_VIEW, Intent.ACTION_EDIT -> intent.data
+            Intent.ACTION_SEND -> streamExtra(intent)
+            else -> null
+        } ?: return
+        openIncoming(uri, intent.type?.substringBefore(';')?.trim() ?: "")
+    }
+
+    @Suppress("DEPRECATION") // minSdk 29: getParcelableExtra(String) is the form that works on every supported API.
+    private fun streamExtra(intent: Intent): Uri? = intent.getParcelableExtra(Intent.EXTRA_STREAM)
+
+    /**
+     * Reads a document another app handed over and opens it like a picked one, so the unsaved-changes
+     * prompt, Recent and Save all apply. VIEW grants are often temporary: keeping access is tried, not required.
+     */
+    private fun openIncoming(uri: Uri, mime: String) {
+        val name = displayName(uri)
+        if (!nativeAccepts(name, mime)) {
+            nativeNotice("Couldn't open $name: WordCraft opens Word, RTF, OpenDocument, text and Markdown files.")
+            return
+        }
+        if (uri.scheme == "content") keepAccess(uri)
+        try {
+            val dest = File(cacheDir, "open-${System.nanoTime()}.bin")
+            contentResolver.openInputStream(uri)?.use { input -> dest.outputStream().use { input.copyTo(it) } }
+                ?: throw java.io.FileNotFoundException(uri.toString())
+            nativeOpened(name, dest.path, uri.toString())
+        } catch (e: Exception) {
+            nativeNotice(readFailure(name, e))
+        }
     }
 
     // GameActivity passes key events to the native side before the back dispatcher sees them.
@@ -449,6 +493,9 @@ class MainActivity : GameActivity() {
 
     /** Whether Android Back has a sheet, menu or Backstage to close. */
     private external fun nativeCanGoBack(): Boolean
+
+    /** Whether WordCraft opens a document with this name and MIME type (files.rs accepts_document). */
+    private external fun nativeAccepts(name: String, mime: String): Boolean
 
     private inner class ImeView : View(this@MainActivity) {
         init {

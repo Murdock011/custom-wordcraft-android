@@ -747,3 +747,57 @@ No engine change, so `docs/ENGINE-CHANGES.md` is untouched.
 ### Open items
 - Read Aloud playback on the emulator needs the speech program (Permission denied). Not verified end to end.
 - Restore keeps the copy until save (a design decision for the owner): a restored draft that was never saved is offered again on relaunch.
+
+## Update 29: App icon and Open with (2026-10-25)
+Scope: the launcher icon and label, Open with and Share for documents, and a keyboard flicker found while testing.
+
+### Icon and label
+- Adaptive icon as vector drawables (`packaging/android-native/app/src/main/res/`): `drawable/ic_launcher_background.xml` (flat terracotta tile), `drawable/ic_launcher_foreground.xml` (cream page with a dog-ear corner, three text lines and a caret), `drawable/ic_launcher_monochrome.xml` (page silhouette with the lines and caret cut out, for themed icons), `mipmap-anydpi-v26/ic_launcher.xml` and `ic_launcher_round.xml`. Original work; no blue tile, pen or "W". Content sits inside the 66dp safe zone.
+- Manifest: `android:icon="@mipmap/ic_launcher"`, `android:roundIcon="@mipmap/ic_launcher_round"`, `android:label="Custom WordCraft"`.
+- `ATTRIBUTION.md`: five rows for the five new files.
+- Device: the drawer shows the icon and "Custom Wor..." (the label is cut off by the launcher; the full name is "Custom WordCraft"). `i29_icon.png` (drawer crop, same screen as `i29_drawer.png`).
+
+### Open with and Share
+- Manifest: `launchMode="singleTask"` (one instance, one native UI loop; a second VIEW reuses the running activity through `onNewIntent`). Intent filters: VIEW for `content` and `file` with the eight types (.docx, .doc, RTF, ODT, text, Markdown), a VIEW filter for `application/octet-stream` with pathSuffix `.docx`/`.DOCX`, EDIT for `content`, and SEND (EXTRA_STREAM) for the same types.
+- `MainActivity.kt`: `handleIntent` runs in `onCreate` (not after a restored instance) and in `onNewIntent`. It reads the URI (VIEW/EDIT data, or SEND's EXTRA_STREAM), takes a persistable grant when the scheme is `content` (failure ignored), and copies the bytes to a cache file through the same `nativeOpened` path a picker open uses. Unsupported files get a status-line message from `nativeAccepts`.
+- `files.rs`: `accepts_document(name, mime)` (extension first; a MIME type alone when the name has no known extension; `octet-stream` alone is refused). Host test `open_with_accepts_word_rtf_odt_and_text_by_name_or_type`. `android.rs`: `nativeAccepts` export.
+- Choice: the octet-stream fallback is by path suffix, as briefed. A `file://` document opens, but its location is not a `content://` one, so it is not kept in Recent and Save asks for a picker. That is the ceiling.
+
+### Device checks (emulator-5554, wc35, x86_64)
+- Launcher and drawer: PASS (`i29_icon.png`, `i29_drawer.png`, `i29_home.png`).
+- Files app, tap quokka.docx, chooser lists "Custom WordCraft": PASS (`i29_files.png`, `i29_chooser.png`). Chooser order changed on a later run, so one tap opened Microsoft Word by mistake; Word was force-stopped. I also saved one Word screenshot by mistake (see the rules note below); it was deleted at once from the cache and the device, and no Word image is in the repo.
+- Opened with the right title: PASS, title "quokka", text shown (`i29_opened.png`).
+- Second .docx from Files with an unsaved edit: the Save changes prompt appears with "Do you want to save changes to quokka.docx?": PASS (`i29_prompt.png`).
+- Plain Save after an edit, no prompt: PASS for in-place save. The prompt's Save wrote quokka.docx in place (device mtime 15:12, 10658 bytes) and the held-back open ran with no crash. Backstage > Menu > Save on "The Open Studio Handbook (6).docx" after a typed edit: no picker, focus stayed on WordCraft, file rewritten in place (mtime 15:13). No crash in logcat.
+- Recent shows the content locations after these opens (`wc29_backstage.png`).
+
+### Keyboard flicker (item 3)
+Symptom: with the soft keyboard open, a tap on the page hides it and shows it again.
+
+Cause found (in the logs, not from the code alone):
+- Every tap produces, in the same millisecond, `onRequestHide` (ORIGIN_CLIENT) and then `onRequestShow` (ORIGIN_CLIENT), both logged from `showSoftInput() view=com.google.androidgamesdk.GameActivity$InputEnabledSurfaceView`. That is GameActivity's own game surface calling `GameTextInput.setSoftKeyboardActive` on touch, not our `ImeView`.
+- The keyboard-wanted state (`WANTS_KEYBOARD`, read from `output.ime`) never changes across a tap, so the hide does not come from our poll or from egui's IME output. (Rust set-IME path: egui-winit only calls `set_ime_allowed` when `output.ime` toggles, and on Android `should_interrupt_composition` is always false because `ime_reset` requires wasm32.)
+- The poll also re-ran `showKeyboard()` (requestFocus, restartInput, showSoftInput) whenever a tap had moved focus from ImeView to the surface. That is a second input client taking the keyboard back, and it was a real cost on every tap.
+
+Changes made:
+- `MainActivity.kt` keyboard poll: when the keyboard is already shown and ImeView lost focus, only `imeView.requestFocus()` runs (no restartInput, no showSoftInput). Kept.
+- Tried and reverted: making the game surface non-focusable (recursive `SurfaceView` walk after the content view is set). It did not stop the hide and show, so it is out of the code.
+
+Measured on the final build (5 taps at (300,1000), (700,1300), (200,700), (800,1100), (400,1420), logcat cleared before the taps):
+- Before any change: 5 client hide requests, 5 surface show calls (2 hide/show cycles seen in an earlier shorter run; the full 5-tap count was 5).
+- After the poll change: 5 hide requests, 5 surface show calls, 0 ImeView show calls. The keyboard is still shown at the end of each tap.
+- Result: NOT FIXED. The visible hide and show happens on every tap. The poll change removes the second input client but not GameActivity's surface cycle. Screenshots after each tap: `i29_kb_300_1000.png` ... `i29_kb_400_1420.png` (before), `i29_kb_after_300_1000.png` ... `i29_kb_after_400_1420.png` (final).
+- Typing, Backspace and Enter still work on the final build: typed "Xy", Backspace, Enter, the text changed as expected (`i29_typing.png`).
+
+Next step for the flicker: the hide and show come from GameActivity's native touch path (`GameTextInput.setSoftKeyboardActive`). A real fix needs either a GameActivity change or moving the editing surface off the game surface's input path, not a Kotlin tweak. Left as a known issue.
+
+### Tests
+- `cargo test -p wordcraft-android`: 22 passed.
+- `cargo test -p wordcraft-ui-egui phone`: 29 passed.
+- `cargo xtask wasm`: ok (16 crates).
+- `cargo xtask assets`: FAILS, but on files this update did not add. It reports 269 asset files without an ATTRIBUTION.md row: gitignored `notes/shots/*.png` screenshots plus a stray `b6.png`. None of the new `res/` files are listed. Not fixed (out of scope; the screenshots are the owner's). `cargo xtask ci` was not run.
+
+### Notes on the process
+- The emulator was down at the start of the keyboard work and was relaunched (`wc35`, cold boot).
+- A Word screenshot was saved by mistake during a chooser mis-tap; it was removed from `~/.cache/wc-spike` and `/sdcard` at once. No Word image was kept or committed.
+- Nothing committed, nothing pushed.

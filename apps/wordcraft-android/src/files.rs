@@ -127,6 +127,26 @@ pub fn recovery_dir() -> Option<PathBuf> {
     DIR.get().map(|d| d.join("recovery"))
 }
 
+/// Document types WordCraft opens from another app (Open with, Share): by extension, and by MIME type
+/// for a provider that sends no usable name. Mirrors the intent filters in AndroidManifest.xml.
+const DOCUMENT_EXTENSIONS: &[&str] = &["docx", "doc", "rtf", "odt", "txt", "text", "md", "markdown"];
+const DOCUMENT_MIMES: &[&str] = &[
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+    "application/rtf",
+    "text/rtf",
+    "application/vnd.oasis.opendocument.text",
+    "text/plain",
+    "text/markdown",
+];
+
+/// Whether a file named `name` with MIME type `mime` (empty when unknown) is a document WordCraft
+/// opens. The extension decides first; `application/octet-stream` counts for nothing else.
+pub fn accepts_document(name: &str, mime: &str) -> bool {
+    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    DOCUMENT_EXTENSIONS.contains(&ext.as_str()) || DOCUMENT_MIMES.contains(&mime.trim().to_ascii_lowercase().as_str())
+}
+
 /// Exports (PDF, PNG) are copies, not the document: they always ask where to save.
 pub fn is_export(name: &str) -> bool {
     name.ends_with(".pdf") || name.ends_with(".png")
@@ -291,6 +311,22 @@ mod tests {
         let list = vec!["content://d/u/quokka.docx".to_string(), "/data/old.docx".to_string(), "content://d/v/a b.docx".to_string()];
         assert_eq!(parse_recent(&recent_text(&list)), vec!["content://d/u/quokka.docx".to_string(), "content://d/v/a b.docx".to_string()]);
         assert!(parse_recent("\n\ncontent://x\n").is_empty());
+    }
+
+    #[test]
+    fn open_with_accepts_word_rtf_odt_and_text_by_name_or_type() {
+        assert!(accepts_document("quokka.docx", "application/octet-stream"), "a provider's octet-stream .docx");
+        assert!(accepts_document("QUOKKA.DOCX", ""));
+        assert!(accepts_document("old.doc", "application/msword"));
+        assert!(accepts_document("notes.rtf", ""));
+        assert!(accepts_document("letter.odt", ""));
+        assert!(accepts_document("readme.md", "text/markdown"));
+        assert!(accepts_document("notes", "text/plain"), "no extension, but a text type");
+        assert!(!accepts_document("photo.jpg", "image/jpeg"));
+        assert!(!accepts_document("report.pdf", "application/pdf"));
+        assert!(!accepts_document("data.bin", "application/octet-stream"), "octet-stream alone is not a document");
+        assert!(!accepts_document("archive.docx.zip", "application/zip"));
+        assert!(!accepts_document("", ""));
     }
 
     #[test]

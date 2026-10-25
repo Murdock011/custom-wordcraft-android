@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Original launcher icon foreground (this fork, MIT OR Apache-2.0): a page with a dog-ear corner,
+     three lines of text and a caret after them. Drawn inside the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFF8EE"
+        android:pathData="M37,27H57L71,41V81H37Z" />
+    <path
+        android:fillColor="#F2D7C4"
+        android:pathData="M57,27V41H71Z" />
+    <path
+        android:fillColor="#2A1F1A"
+        android:pathData="M43,48h20v4h-20z M43,58h20v4h-20z M43,68h12v4h-12z" />
+    <path
+        android:fillColor="#D9522B"
+        android:pathData="M58,65h3v10h-3z" />
+</vector>

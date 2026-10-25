@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Original themed-icon layer (this fork, MIT OR Apache-2.0): the page silhouette with the text lines
+     and caret cut out (even-odd), so the launcher can tint it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FF000000"
+        android:fillType="evenOdd"
+        android:pathData="M37,27H57L71,41V81H37Z M43,48h20v4h-20z M43,58h20v4h-20z M43,68h12v4h-12z M58,65h3v10h-3z" />
+</vector>

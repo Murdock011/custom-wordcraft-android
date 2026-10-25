@@ -2,13 +2,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:label="WordCraft Native"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="Custom WordCraft"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+        <!-- singleTask: one instance (one native UI loop per process). A document opened from another app
+             comes to onNewIntent of this instance instead of starting a second one. -->
         <activity
             android:name="ai.storyteller.wordcraft.nativeapp.MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|layoutDirection"
             android:exported="true"
+            android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
             <meta-data
                 android:name="android.app.lib_name"
@@ -16,6 +21,61 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Open with: Files, mail and browsers offer WordCraft for these types. The list matches
+                 `files::accepts_document` (Rust); keep the two in step. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/msword" />
+                <data android:mimeType="application/rtf" />
+                <data android:mimeType="text/rtf" />
+                <data android:mimeType="application/vnd.oasis.opendocument.text" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/markdown" />
+            </intent-filter>
+
+            <!-- Some providers send .docx as application/octet-stream: accept it by its name. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:pathSuffix=".docx" />
+                <data android:pathSuffix=".DOCX" />
+            </intent-filter>
+
+            <!-- Edit: a provider that wants the document edited in place. -->
+            <intent-filter>
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/msword" />
+                <data android:mimeType="application/rtf" />
+                <data android:mimeType="text/rtf" />
+                <data android:mimeType="application/vnd.oasis.opendocument.text" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/markdown" />
+            </intent-filter>
+
+            <!-- Share: a document sent to WordCraft from the share sheet (its stream, EXTRA_STREAM). -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/msword" />
+                <data android:mimeType="application/rtf" />
+                <data android:mimeType="text/rtf" />
+                <data android:mimeType="application/vnd.oasis.opendocument.text" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/markdown" />
             </intent-filter>
         </activity>
     </application>
