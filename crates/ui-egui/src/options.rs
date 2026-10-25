@@ -289,10 +289,27 @@ fn set(app: &mut WordApp, params: Value) {
     }
 }
 
-/// A checkbox for a `file.options` on/off setting.
+/// An on/off setting: a checkbox on the desktop, a switch row on the phone (Update 36). `text` is
+/// already translated.
+fn switch(ui: &mut Ui, value: &mut bool, text: &str) -> egui::Response {
+    if crate::phone::active(ui.ctx()) { crate::phone::toggle_row(ui, value, text) } else { ui.checkbox(value, text) }
+}
+
+/// A switch with help: the help is a hover tip on the desktop, and a line under the row on the phone,
+/// where there is no hover.
+fn switch_help(ui: &mut Ui, value: &mut bool, text: &str, help: &str) -> egui::Response {
+    let r = switch(ui, value, text).on_hover_text(help);
+    if crate::phone::active(ui.ctx()) {
+        // Already translated by the caller, so drawn as is (not through `note`, which would translate it again).
+        ui.label(egui::RichText::new(help).small().weak());
+    }
+    r
+}
+
+/// A switch for a `file.options` on/off setting.
 fn flag(app: &mut WordApp, ui: &mut Ui, label: &str, key: &str, value: bool) {
     let mut v = value;
-    if ui.checkbox(&mut v, tl!(label)).changed() {
+    if switch(ui, &mut v, tl!(label)).changed() {
         set(app, json!({ key: v }));
     }
 }
@@ -301,27 +318,31 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
     section(ui, "Interface");
     theme_picker(app, ui);
     interface_size_picker(app, ui);
-    ui.checkbox(&mut app.ui.mini_toolbar, tl!("Show the mini toolbar when text is selected"));
+    switch(ui, &mut app.ui.mini_toolbar, tl!("Show the mini toolbar when text is selected"));
     selection_menu_picker(app, ui);
     let mut dark_page = app.session.view.dark_mode;
-    if ui
-        .checkbox(&mut dark_page, tl!("Dark page (white text on black)"))
-        .on_hover_text(tl!("Show documents with their colours inverted, like View › Switch Modes. Saving, printing and PDFs are unchanged."))
-        .changed()
+    if switch_help(
+        ui,
+        &mut dark_page,
+        tl!("Dark page (white text on black)"),
+        tl!("Show documents with their colours inverted, like View › Switch Modes. Saving, printing and PDFs are unchanged."),
+    )
+    .changed()
     {
         let _ = app.run("view.darkMode", json!({"value": dark_page}));
     }
-    ui.checkbox(&mut app.ui.show_discord, tl!("Show the community button in the title bar"));
+    switch(ui, &mut app.ui.show_discord, tl!("Show the community button in the title bar"));
     default_app_button(app, ui);
     ui.add_space(8.0);
     section(ui, "Start-up");
     let mut start = app.ui.start_screen;
-    if ui
-        .checkbox(&mut start, tl!("Show the Start screen when WordCraft starts"))
-        .on_hover_text(tl!(
-            "On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document."
-        ))
-        .changed()
+    if switch_help(
+        ui,
+        &mut start,
+        tl!("Show the Start screen when WordCraft starts"),
+        tl!("On: WordCraft opens on File › Home, with a blank document, the templates and your recent documents. Off: it opens a blank document."),
+    )
+    .changed()
     {
         let _ = app.run("ui.startScreen", json!({"value": start}));
     }
@@ -378,25 +399,25 @@ fn display(app: &mut WordApp, ui: &mut Ui) {
         ("Hidden text", "hidden", m.hidden),
     ] {
         let mut v = on;
-        if ui.checkbox(&mut v, tl!(label)).changed() {
+        if switch(ui, &mut v, tl!(label)).changed() {
             set(app, json!({"marks": { key: v }}));
         }
     }
     let mut marks = app.session.view.marks;
-    if ui.checkbox(&mut marks, tl!("Show all formatting marks")).changed() {
+    if switch(ui, &mut marks, tl!("Show all formatting marks")).changed() {
         let _ = app.run("view.marks", json!({"value": marks}));
     }
     ui.add_space(8.0);
     section(ui, "Page display");
     let mut ruler = app.session.view.ruler;
-    if ui.checkbox(&mut ruler, tl!("Show rulers")).changed() {
+    if switch(ui, &mut ruler, tl!("Show rulers")).changed() {
         let _ = app.run("view.ruler", json!({"value": ruler}));
     }
     numeral_picker(app, ui);
     ui.add_space(8.0);
     section(ui, "Printing");
-    ui.checkbox(&mut app.ui.print_backgrounds, tl!("Print the page color"));
-    ui.checkbox(&mut app.ui.update_fields_before_print, tl!("Update fields before printing"));
+    switch(ui, &mut app.ui.print_backgrounds, tl!("Print the page color"));
+    switch(ui, &mut app.ui.update_fields_before_print, tl!("Update fields before printing"));
 }
 
 fn proofing(app: &mut WordApp, ui: &mut Ui) {
@@ -545,7 +566,7 @@ fn save(app: &mut WordApp, ui: &mut Ui) {
     // The browser can't write to the user's files, so AutoSave can't be turned on there (#176).
     let browser = app.autosave_block() == Some(crate::AutoSaveBlock::Browser);
     let mut autosave = app.autosave && !browser;
-    let r = ui.add_enabled(!browser, egui::Checkbox::new(&mut autosave, tl!("AutoSave documents you have saved in WordCraft")));
+    let r = ui.add_enabled_ui(!browser, |ui| switch(ui, &mut autosave, tl!("AutoSave documents you have saved in WordCraft"))).inner;
     if browser {
         r.on_disabled_hover_text(crate::AutoSaveBlock::Browser.reason());
     } else if r.changed() {
@@ -563,7 +584,7 @@ fn save(app: &mut WordApp, ui: &mut Ui) {
     ];
     for (label, key, value) in rows {
         let mut v = value;
-        if ui.checkbox(&mut v, tl!(label)).changed()
+        if switch(ui, &mut v, tl!(label)).changed()
             && let Err(e) = app.run("file.privacyOptions", json!({ key: v }))
         {
             app.status(e);
@@ -602,7 +623,7 @@ fn accessibility(app: &mut WordApp, ui: &mut Ui) {
         }
     });
     let mut skip = app.session.read_aloud.skip_citations;
-    if ui.checkbox(&mut skip, tl!("Skip citations & bibliography")).changed() {
+    if switch(ui, &mut skip, tl!("Skip citations & bibliography")).changed() {
         let _ = app.run("readAloud.skipCitations", json!({"value": skip}));
     }
 }
@@ -614,10 +635,13 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
     flag(app, ui, "Use the Insert key to switch overtype on and off", "insertKeyOvertype", pr.insert_key_overtype);
     flag(app, ui, "Overtype (typing replaces the characters after the caret)", "overtype", pr.overtype);
     let mut guides = app.ui.alignment_guides;
-    if ui
-        .checkbox(&mut guides, tl!("Show alignment guides when moving pictures and shapes"))
-        .on_hover_text(tl!("Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely."))
-        .changed()
+    if switch_help(
+        ui,
+        &mut guides,
+        tl!("Show alignment guides when moving pictures and shapes"),
+        tl!("Moved objects snap to the page's edges and centre, the margins and other objects. Hold Alt to move freely."),
+    )
+    .changed()
     {
         let _ = app.run("ui.alignmentGuides", json!({"value": guides}));
     }
@@ -679,18 +703,19 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
         ui.end_row();
     });
     let mut keytips = app.ui.keytips_enabled;
-    if ui.checkbox(&mut keytips, tl!("Show KeyTips (Alt or F10)")).changed() {
+    if switch(ui, &mut keytips, tl!("Show KeyTips (Alt or F10)")).changed() {
         let _ = app.run("ui.keytips", json!({"value": keytips}));
     }
     ui.add_space(8.0);
     section(ui, "Animation");
     let mut caret = app.ui.caret_animation;
-    if ui
-        .checkbox(&mut caret, tl!("Animate the caret (it glides and fades)"))
-        .on_hover_text(tl!(
-            "On: the caret glides to its new place when you type or use the arrow keys, and its blink fades. Off: it jumps and blinks on and off."
-        ))
-        .changed()
+    if switch_help(
+        ui,
+        &mut caret,
+        tl!("Animate the caret (it glides and fades)"),
+        tl!("On: the caret glides to its new place when you type or use the arrow keys, and its blink fades. Off: it jumps and blinks on and off."),
+    )
+    .changed()
     {
         let _ = app.run("ui.caretAnimation", json!({"value": caret}));
     }
@@ -1506,6 +1531,23 @@ mod phone_tests {
             }
             assert!(checked > 0 || id == "agents", "{label} has controls to check");
         }
+    }
+
+    /// Update 36: a phone setting is a switch row: a checkbox to a screen reader, 48 pt tall, the
+    /// whole row, and a tap turns the setting on or off.
+    #[test]
+    fn phone_settings_are_switch_rows_that_toggle() {
+        use egui::accesskit::Role;
+        let mut h = options(412.0);
+        h.get_by_role_and_label(Role::Button, "Display").click();
+        h.run_steps(4);
+        let before = h.state().session.view.ruler;
+        let rect = h.get_by_role_and_label(Role::CheckBox, "Show rulers").rect();
+        assert!(rect.height() >= 47.9, "a switch row is 48 pt tall: {rect:?}");
+        assert!(rect.left() >= 0.0 && rect.right() <= 412.5, "the row fits the screen: {rect:?}");
+        h.get_by_role_and_label(Role::CheckBox, "Show rulers").click();
+        h.run_steps(4);
+        assert_eq!(h.state().session.view.ruler, !before, "a tap turns the ruler setting over");
     }
 
     /// Update 32: the desktop keeps two columns: the category list beside the settings, no Back row.

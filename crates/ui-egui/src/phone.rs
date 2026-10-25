@@ -1584,6 +1584,45 @@ pub(crate) fn list_row(ui: &mut Ui, m: Md, label: &str, icon: &str, chevron: boo
     resp
 }
 
+/// A switch's track: 52 x 32 pt, as Android's settings draw it.
+const SWITCH_W: f32 = 52.0;
+const SWITCH_H: f32 = 32.0;
+
+/// An on/off setting on the phone (Update 36): a full-width row with the label on the left and a
+/// switch on the right, like Android's settings. The whole row toggles and is 48 pt or taller. It
+/// is a checkbox to a screen reader, named by `text`, which the caller has already translated. Help
+/// text goes under the row.
+pub(crate) fn toggle_row(ui: &mut Ui, value: &mut bool, text: &str) -> egui::Response {
+    let m = md(ui.ctx());
+    let enabled = ui.is_enabled();
+    let color = if enabled { m.on_surface } else { state(m.on_surface, 97) };
+    // The label wraps before the switch, so a long label never runs under it.
+    let text_w = (ui.available_width() - 16.0 - 16.0 - SWITCH_W - 16.0).max(40.0);
+    let galley = ui.painter().layout(text.to_string(), regular(16.0), color, text_w);
+    let height = (galley.size().y + 24.0).max(TOUCH_H);
+    let (r, mut resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
+    if enabled && resp.clicked() {
+        *value = !*value;
+        resp.mark_changed();
+    }
+    let on = *value;
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, on, text));
+    paint_state(ui, r, 0, m.on_surface, &resp);
+    let painter = ui.painter();
+    painter.galley(Pos2::new(r.left() + 16.0, r.center().y - galley.size().y / 2.0), galley, color);
+    // The thumb slides across and grows as the switch turns on (Material's sizes: 16 pt off, 24 pt on).
+    let t = ui.ctx().animate_bool_responsive(resp.id, on);
+    let track = Rect::from_center_size(Pos2::new(r.right() - 16.0 - SWITCH_W / 2.0, r.center().y), vec2(SWITCH_W, SWITCH_H));
+    let (fill, edge, thumb) = if on { (m.primary, m.primary, m.on_primary) } else { (m.surface_high, m.outline, m.outline) };
+    let fade = |c: Color32| if enabled { c } else { state(c, 97) };
+    let edge_stroke = if on { egui::Stroke::NONE } else { egui::Stroke::new(2.0, fade(edge)) };
+    painter.rect(track, CornerRadius::same((SWITCH_H / 2.0) as u8), fade(fill), edge_stroke, egui::StrokeKind::Inside);
+    let radius = 8.0 + 4.0 * t;
+    let x = track.left() + 16.0 + (SWITCH_W - 32.0) * t;
+    painter.circle_filled(Pos2::new(x, track.center().y), radius, fade(thumb));
+    resp
+}
+
 // Dialogs as bottom sheets (Update 22). Every dialog that opens on the phone goes through
 // `dialog_sheet`, and its OK/Cancel row through `dialogs::buttons`, which lands in the sheet's footer.
 
