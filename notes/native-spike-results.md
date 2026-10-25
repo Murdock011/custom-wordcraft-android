@@ -960,3 +960,24 @@ Screenshots (`notes/mockups/`, one per category): `options-touch-general.png`, `
 Known gaps:
 - Not run on the emulator this round.
 - The Read Aloud speed slider rail is very faint on the phone (theme colour, not a size issue); left as is.
+
+## Update 36: Toggle switches in Options, Recover rows (2026-10-25)
+Scope: the phone layout only. Desktop Options and Recover are unchanged (checkboxes and the grid stay).
+
+1. Switches in phone Options. `phone::toggle_row(ui, &mut bool, text)` draws a full-width row: the label on the left (wraps before the switch), a 52 x 32 pt switch on the right (accent when on, outline when off, thumb slides and grows, drawn in code). The whole row is the target, 48 pt or taller. It reports as a checkbox named by its label, with its checked state. Disabled rows fade. `options.rs` `switch` picks the switch on the phone and `ui.checkbox` on the desktop; `switch_help` shows the help as a hover tip on the desktop and as a line under the row on the phone. Every boolean checkbox on the phone Options pages uses it (General, Display, Save incl. the AutoSave row and the Privacy rows, Accessibility, Advanced). Radio buttons (Selection menu) and dialog checkboxes are unchanged.
+2. Recover rows on the phone (`backstage.rs` `recovery_page`). Each copy is a card: a 1 pt outline, rounded 12 pt corners, a subtle fill, 12 pt between cards. The name (bold) and time sit on the left; Restore (accent, primary) and Discard… (secondary) sit on the right, both 48 pt. `egui::Sides` with shrink_left and truncate: a long name ends in an ellipsis and the buttons keep their place. Discard still asks to confirm (unchanged command). The desktop grid is unchanged.
+
+Tests:
+- `options::phone_tests::phone_settings_are_switch_rows_that_toggle`: a phone Display row is a CheckBox, 48 pt tall, on the screen; a tap turns `view.ruler` over.
+- `backstage::tests::recovery_copies_are_cards_with_buttons_on_the_right`: three copies at 400 pt; each Restore and Discard… is 48 pt, on one row, Discard… left of Restore, Restore at the right edge; the name sits left of the buttons.
+- Existing: `every_phone_category_control_is_48_pt_tall` and `recovery_restore_is_on_screen_on_a_phone` still pass.
+- `cargo test -p wordcraft-ui-egui`: 870 passed, 0 failed, 2 ignored; integration 10 passed.
+- `cargo xtask wasm`: ok (16 crates).
+
+Screenshots (`notes/mockups/`, 412 x 915 pt at 2.625x, headless; the Recover shot was taken with a temporary test that wrote three synthetic recovery copies into a temp profile, since removed):
+- `options-toggles-general.png`: General with the mini toolbar, community button, Start screen and Dark page switches.
+- `options-toggles-advanced.png`: Advanced › Editing, Overtype, alignment guides and KeyTips switches.
+- `recover-rows.png`: four cards (one long name, truncated), buttons on the right.
+Checked by eye: switches read as on/off, labels are left, help text sits under its row, nothing runs off the right edge.
+
+Known, not changed here: the row labels are indented 16 pt from the section headings (the Android settings inset). Not run on the emulator this round. Clippy not run.

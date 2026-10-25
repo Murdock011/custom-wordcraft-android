@@ -329,13 +329,40 @@ fn recovery_page(app: &mut WordApp, ui: &mut Ui) {
         });
     };
     if crate::phone::active(ui.ctx()) {
-        // Three columns do not fit a phone and cannot scroll sideways, so the buttons went off-screen.
-        // On a phone each copy is a block with its buttons under it.
+        // Three columns do not fit a phone and cannot scroll sideways. Each copy is a card (Update 36):
+        // its name and time on the left, Restore (the primary action) and Discard… on the right. A long
+        // name truncates so the buttons stay on the right.
+        let m = crate::phone::md(ui.ctx());
         for doc in &documents {
-            ui.strong(&doc.name);
-            ui.label(&doc.saved_at);
-            actions(app, ui, &doc.id);
-            ui.add_space(16.0);
+            egui::Frame::new()
+                .fill(m.surface_low)
+                .stroke(Stroke::new(1.0, m.outline_variant))
+                .corner_radius(egui::CornerRadius::same(12))
+                .inner_margin(egui::Margin::same(12))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    egui::Sides::new().shrink_left().truncate().height(crate::phone::TOUCH_H).show(
+                        ui,
+                        |ui| {
+                            ui.vertical(|ui| {
+                                ui.add(egui::Label::new(egui::RichText::new(&doc.name).font(semibold(16.0))).truncate());
+                                ui.add(egui::Label::new(egui::RichText::new(&doc.saved_at).small().weak()).truncate());
+                            });
+                        },
+                        |ui| {
+                            // Right-to-left: the first button added sits on the far right.
+                            ui.add_enabled_ui(!busy, |ui| {
+                                if ui.add(egui::Button::new(egui::RichText::new(tl!("Restore")).color(m.on_primary)).fill(m.primary)).clicked() {
+                                    let _ = app.run("file.recover", json!({"restore": doc.id}));
+                                }
+                                if ui.button(tl!("Discard…")).clicked() {
+                                    let _ = app.run("ui.recoveryDiscard", json!({"id": doc.id}));
+                                }
+                            });
+                        },
+                    );
+                });
+            ui.add_space(12.0);
         }
     } else {
         egui::Grid::new("recovery_documents").min_col_width(180.0).spacing(vec2(24.0, 16.0)).show(ui, |ui| {
@@ -1195,6 +1222,98 @@ mod tests {
         let restore = h.get_by_label("Restore").rect();
         assert!(restore.max.x <= 400.0, "Restore is within the 400 pt phone width: {restore:?}");
         assert!(restore.height() >= crate::phone::TOUCH_H, "Restore is a 48 pt touch target on the phone: {restore:?}");
+        drop(h);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Update 36: a recovery copy on the phone is a card: its name and time on the left, Restore and
+    /// Discard… on the right, both 48 pt, and a long name never pushes the buttons off the screen.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn recovery_copies_are_cards_with_buttons_on_the_right() {
+        let (mut app, root) = recovery_fixture();
+        let copy = |id: &str, name: &str| {
+            let dir = root.join(id);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("snapshot-00000000000000000001.json"),
+                serde_json::to_vec(&json!({
+                    "version": 1, "generation": 1, "info": {"id": id, "name": name, "savedAt": "2026-10-12T09:00:00Z"},
+                    "document": wordcraft_doc::Document::from_text("Recovered synthetic work")
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        };
+        copy("11111111111111111111111111111111", "Notes");
+        copy("22222222222222222222222222222222", "A very long recovered document name that runs on past the buttons.docx");
+        app.session.enable_recovery(root.clone(), std::sync::Arc::new(|| {})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(400.0, 800.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        settle_recovery(&mut h);
+        h.run_steps(4);
+        let restores: Vec<egui::Rect> = h.query_all_by_label("Restore").map(|n| n.rect()).collect();
+        let discards: Vec<egui::Rect> = h.query_all_by_label("Discard…").map(|n| n.rect()).collect();
+        assert_eq!(restores.len(), 3, "one Restore per copy");
+        assert_eq!(discards.len(), 3, "one Discard… per copy");
+        for r in &restores {
+            let d = discards.iter().find(|d| (d.center().y - r.center().y).abs() < 2.0).copied().expect("a Discard… on the same row");
+            assert!(r.right() <= 400.0 && d.left() >= 0.0, "buttons are on the screen: {r:?} {d:?}");
+            assert!(d.right() <= r.left() + 0.5, "Discard… sits left of Restore on the same row: {d:?} {r:?}");
+            assert!(r.height() >= crate::phone::TOUCH_H && d.height() >= crate::phone::TOUCH_H, "both are 48 pt");
+            assert!(r.right() >= 400.0 - 40.0, "Restore is at the row's right edge: {r:?}");
+        }
+        let notes = h.query_by_label("Notes").expect("the name is drawn").rect();
+        let row = restores.iter().find(|r| (r.center().y - notes.center().y).abs() < 60.0).copied().expect("Notes has a row");
+        assert!(notes.right() <= row.left() - 0.5 || notes.bottom() <= row.top() || notes.top() >= row.bottom(), "the name is left of the buttons");
+        drop(h);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn temp_shot_recover_rows() {
+        let Some(out) = std::env::var_os("WC_SHOT_RECOVER") else { return };
+        let (mut app, root) = recovery_fixture();
+        let copy = |id: &str, name: &str, at: &str| {
+            let dir = root.join(id);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("snapshot-00000000000000000001.json"),
+                serde_json::to_vec(&json!({
+                    "version": 1, "generation": 1, "info": {"id": id, "name": name, "savedAt": at},
+                    "document": wordcraft_doc::Document::from_text("Recovered synthetic work")
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        };
+        copy("11111111111111111111111111111111", "Notes", "2026-10-12T09:00:00Z");
+        copy("22222222222222222222222222222222", "Lease draft", "2026-10-13T14:30:00Z");
+        copy("33333333333333333333333333333333", "A very long recovered document name that runs on past the buttons.docx", "2026-10-14T08:05:00Z");
+        app.session.enable_recovery(root.clone(), std::sync::Arc::new(|| {})).unwrap();
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(412.0, 915.0))
+            .with_pixels_per_point(2.625)
+            .with_max_steps(1_000_000)
+            .wgpu()
+            .build_ui_state(
+                |ui, app: &mut WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                app,
+            );
+        settle_recovery(&mut h);
+        h.run_steps(4);
+        h.render().unwrap().save(out).unwrap();
         drop(h);
         let _ = std::fs::remove_dir_all(&root);
     }
