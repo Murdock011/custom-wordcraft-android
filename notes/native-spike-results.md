@@ -1036,3 +1036,13 @@ Screenshots (`notes/mockups/`, 412 x 915 pt at 2.625x, headless; the Recover sho
 Checked by eye: switches read as on/off, labels are left, help text sits under its row, nothing runs off the right edge.
 
 Known, not changed here: the row labels are indented 16 pt from the section headings (the Android settings inset). Not run on the emulator this round. Clippy not run.
+
+## Update 37b: IME commit-then-delete tests (2026-10-25)
+Host tests for the open item in Update 35 (commit-then-delete). No bug found; no behaviour change.
+
+- Tests in `apps/wordcraft-android/src/ime.rs`: `commit_then_backspace_at_the_end_of_a_word_erases_one_letter` ("Hello" typed by composing, committed, Finish + DeleteSurrounding(1,0) gives "Hell", caret 4); `commit_then_backspace_mid_word_leaves_the_word_as_it_was` ("Thursday", caret 5, Gboard `q` composed and committed, Backspace gives "Thursday", caret 5, no stray letter); `commit_then_backspace_after_a_tap_removes_only_the_typed_letter` (tap to caret 1, compose and commit "x", Backspace removes the x at the tap).
+- Limit: the Shell (`app.rs`) is Android-only and is not built on host. The tests run its composition steps (`sync_held`, `replace_held`, `handle_ime`) on the `Doc` model that the existing IME tests use, so they cover `ime.rs` and the mirrored logic, not the Shell's own code.
+- `lib.rs`: `#![cfg_attr(not(target_os = "android"), allow(dead_code))]`. Off Android the modules have no callers, so clippy `-D warnings` failed on dead code before this change.
+- Still open: the "Thursdaqy" device state from Update 35 is not explained by these host tests.
+
+Tests: `cargo test -p wordcraft-android` 28 passed; `cargo clippy -p wordcraft-android --all-targets -- -D warnings` clean.

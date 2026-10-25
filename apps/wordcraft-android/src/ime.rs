@@ -149,7 +149,11 @@ impl Span {
 /// Whether `span` still holds in `para` with the caret at `caret`: the text is still there, and the
 /// caret has not moved since the span was last read.
 pub fn holds(span: &Span, para: &str, caret: usize) -> bool {
-    caret == span.caret && span.caret >= span.start && span.caret <= span.end() && para.is_char_boundary(caret) && para.get(span.start..span.end()) == Some(span.text.as_str())
+    caret == span.caret
+        && span.caret >= span.start
+        && span.caret <= span.end()
+        && para.is_char_boundary(caret)
+        && para.get(span.start..span.end()) == Some(span.text.as_str())
 }
 
 /// The span read again after an edit made for it: from `start` to the caret, as the paragraph now
@@ -166,11 +170,7 @@ pub fn resynced(start: usize, para: &str, caret: usize) -> Option<Span> {
 /// The span the held one is at now. After an edit made for it (`fresh`), it is read again; before
 /// that, it is kept only while it holds. `None` ends the composition, and the text stays where it is.
 pub fn sync(held: &Span, fresh: bool, para: &str, caret: usize) -> Option<Span> {
-    if fresh {
-        resynced(held.start, para, caret)
-    } else {
-        holds(held, para, caret).then(|| held.clone())
-    }
+    if fresh { resynced(held.start, para, caret) } else { holds(held, para, caret).then(|| held.clone()) }
 }
 
 /// The composing region `start..end` (UTF-16, in `para`) the input method set over text. The words
@@ -343,7 +343,8 @@ mod tests {
         fn apply(&mut self, op: &Op) {
             match *op {
                 Op::Erase { before, after } => {
-                    let start = if before == 0 { self.caret } else { self.para[..self.caret].char_indices().rev().nth(before - 1).map_or(0, |(i, _)| i) };
+                    let start =
+                        if before == 0 { self.caret } else { self.para[..self.caret].char_indices().rev().nth(before - 1).map_or(0, |(i, _)| i) };
                     let tail = &self.para[self.caret..];
                     let end = self.caret + if after == 0 { 0 } else { tail.char_indices().nth(after).map_or(tail.len(), |(i, _)| i) };
                     self.para.replace_range(start..end, "");
@@ -413,5 +414,106 @@ mod tests {
         d.apply(&Op::Erase { before: 2, after: 0 });
         assert_eq!(d.para, "ab", "both chars go, the text before the span stays");
         assert_eq!(sync(&s, true, &d.para, d.caret), None, "nothing is left of the span");
+    }
+
+    /// The composition state `app.rs` keeps (`held`, `fresh`) and the messages it handles
+    /// (`handle_ime`), over the same `Doc`. The Shell is Android-only, so these run its steps here.
+    struct Typist {
+        doc: Doc,
+        held: Option<Span>,
+        fresh: bool,
+    }
+
+    impl Typist {
+        fn at(para: &str, caret: usize) -> Self {
+            Self { doc: Doc { para: para.into(), caret }, held: None, fresh: false }
+        }
+
+        /// A tap: the caret moves, and the held span (if any) is checked on the next message.
+        fn tap(&mut self, caret: usize) {
+            self.doc.caret = caret;
+        }
+
+        fn sync_held(&mut self) {
+            let Some(h) = self.held.take() else { return };
+            self.held = sync(&h, self.fresh, &self.doc.para, self.doc.caret);
+            self.fresh = false;
+        }
+
+        /// `replace_held`: puts `t` in place of the span, or at the caret when none is held.
+        fn replace_held(&mut self, t: &str, keep: bool) {
+            let start = self.held.as_ref().map_or(self.doc.caret, |h| h.start);
+            for op in replace_ops(self.held.as_ref(), t) {
+                self.doc.apply(&op);
+            }
+            self.held = (keep && !t.is_empty()).then(|| Span { start, caret: start, text: String::new() });
+            self.fresh = true;
+        }
+
+        fn handle(&mut self, m: Msg) {
+            self.sync_held();
+            match m {
+                Msg::Compose(t) => self.replace_held(&t, true),
+                Msg::Commit(t) => self.replace_held(&t, false),
+                Msg::Finish => self.held = None,
+                Msg::Delete { before, after } => {
+                    if before + after > 0 {
+                        self.doc.apply(&Op::Erase { before, after });
+                    }
+                    if self.held.is_some() {
+                        self.fresh = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        /// Gboard's typing of `word`: each prefix is set as the composition, then the word commits.
+        fn type_word(&mut self, word: &str) {
+            let chars: Vec<char> = word.chars().collect();
+            for n in 1..chars.len() {
+                self.handle(Msg::Compose(chars[..n].iter().collect()));
+            }
+            self.handle(Msg::Commit(word.into()));
+        }
+    }
+
+    #[test]
+    fn commit_then_backspace_at_the_end_of_a_word_erases_one_letter() {
+        let mut t = Typist::at("", 0);
+        t.type_word("Hello");
+        assert_eq!((t.doc.para.as_str(), t.doc.caret), ("Hello", 5));
+        // Gboard's Backspace: finish the composition, then delete the character before the caret.
+        t.handle(Msg::Finish);
+        t.handle(Msg::Delete { before: 1, after: 0 });
+        assert_eq!((t.doc.para.as_str(), t.doc.caret), ("Hell", 4));
+        assert!(t.held.is_none());
+    }
+
+    #[test]
+    fn commit_then_backspace_mid_word_leaves_the_word_as_it_was() {
+        let mut t = Typist::at("Thursday", 5);
+        // Gboard's `q`: composed, then committed; Backspace removes it again.
+        t.handle(Msg::Compose("q".into()));
+        t.handle(Msg::Commit("q".into()));
+        assert_eq!((t.doc.para.as_str(), t.doc.caret), ("Thursqday", 6));
+        t.handle(Msg::Finish);
+        t.handle(Msg::Delete { before: 1, after: 0 });
+        assert_eq!((t.doc.para.as_str(), t.doc.caret), ("Thursday", 5), "no stray letter, caret after Thurs");
+    }
+
+    #[test]
+    fn commit_then_backspace_after_a_tap_removes_only_the_typed_letter() {
+        let mut t = Typist::at("xyz", 3);
+        t.type_word("abc");
+        assert_eq!((t.doc.para.as_str(), t.doc.caret), ("xyzabc", 6));
+        // A tap after the first letter moves the caret; the next composition lands there.
+        t.tap(1);
+        t.handle(Msg::Compose("x".into()));
+        t.handle(Msg::Commit("x".into()));
+        assert_eq!((t.doc.para.as_str(), t.doc.caret), ("xxyzabc", 2));
+        t.handle(Msg::Finish);
+        t.handle(Msg::Delete { before: 1, after: 0 });
+        assert_eq!((t.doc.para.as_str(), t.doc.caret), ("xyzabc", 1), "the x at the tap is gone, the rest is unchanged");
     }
 }
