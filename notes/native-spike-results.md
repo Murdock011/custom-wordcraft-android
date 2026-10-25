@@ -392,3 +392,54 @@ Task 2 (`p18_*`):
 Not run: copy contents checked on disk; a second kill point (kill during an edit with no pause); a physical phone; wasm/clippy beyond `xtask wasm`.
 
 Limits: the copy at pause is written on the next frame. If Android stops frames before that, the last typing can be lost; the device test passed, but one run is not a guarantee.
+
+## Update 19: Failed Recent open keeps the current document (2026-10-25)
+Question from Update 18: after reopening a deleted file from Recent, the document area was grey with the missing file's title. Does a failed Recent open replace or clear the open document?
+
+Answer: no. Nothing is lost. The code changed nothing.
+
+Code path (no change needed):
+- `crates/ui-egui/src/backstage.rs:718-729` `open_recent`: a host location goes to `open_location` and returns `Ok` only when the host accepts it. Nothing touches `session` on this path. A file-system path goes to `file.open` only after the host declines.
+- `apps/wordcraft-android/src/app.rs:101-121` `drain_files`: a failed read arrives as a notice and becomes `app.status`. It never reaches `session`.
+- `packaging/android-native/app/src/main/java/ai/storyteller/wordcraft/nativeapp/MainActivity.kt:171-182`: a failed Recent read calls `nativeNotice` only. `nativeOpened` is called only after the bytes are copied, so no empty document is delivered.
+- `crates/engine/src/cmd/file.rs:228-265` `open`: the bytes are parsed into `doc` first, and `s.set_document` (line 255) runs only after a successful parse. A parse error leaves the session untouched.
+
+Device check (emulator-5554, `ai.storyteller.wordcraft.native`, focus checked before each screenshot; no Word screenshots; the Save As picker is the Android Downloads picker, a system window, not Word):
+1. Sample opened. Typed "KeepMe" at the start (`m19_00_launch.png`, `m19_01_typed.png`).
+2. Backstage > Save As > Browse, name "keepme.docx" in Downloads, Save. Title reads "keepme", `/sdcard/Download/keepme.docx` exists (`m19_02_backstage.png`, `m19_03_menu.png`, `m19_04_saveas_picker.png`, `m19_05_browse.png`, `m19_06_name.png`, `m19_07_after_saveas.png`).
+3. New > Blank document, typed "StillHere". Title Document1, unsaved (`m19_08_new.png`, `m19_09_stillhere.png`).
+4. `adb shell rm /sdcard/Download/keepme.docx`. Open > Recent lists keepme.docx (`m19_10_open_recent.png`).
+5. Tapped keepme.docx in Recent. Result:
+   - The notice "keepme.docx is no longer there. It was moved, renamed or deleted." shows at the top (`m19_after.png`).
+   - The title stays Document1. The document still has "StillHere" (`m19_after_wait.png`, after the 6 s notice cleared).
+   - The document still has no saved name, so it stays unsaved.
+
+Why the p18 screenshot looked empty: in Update 18 the open document was the missing file itself (it was removed while open), so the title was that file's name. The grey area below the page is the canvas background under the page, as in `m19_09_stillhere.png`, not a cleared document.
+
+Not a bug. No code or tests changed.
+
+Observation, not tested: the Recent path, like any successful open, replaces the open document without a Save-changes prompt. Opening a 0-byte location (empty file) goes through `is_empty_file`/`file.open` and becomes a blank document (`crates/engine/src/cmd/file.rs:236-240`). A provider that returns an empty stream instead of an error would therefore replace unsaved work. Not reproduced. Check whether `open` needs the same dirty guard as New and personal templates (`backstage.rs:1354`).
+
+## Update 20: Open asks to save unsaved changes (2026-10-25)
+Question: on Android, does Open > Recent or Open > Browse replace an unsaved document without the "Save changes?" prompt?
+
+Answer: no. Both paths ask. No code changed, so no test was added.
+
+Code path (desktop and Android share it):
+- `crates/ui-egui/src/lib.rs:2946-2956` `discards_document`: `file.open` counts as discarding when it has a `path`.
+- `crates/ui-egui/src/lib.rs` `WordApp::run` (about line 937): a dirty document (or unconfirmed save) asks Save / Don't Save / Cancel before a discarding command runs. `file.new` uses the same guard (test at `backstage.rs:1354`).
+- Desktop Browse: `file_dialogs.rs:247` `finish_pick` calls `self.run("file.open", {path})` after the picker, so the prompt comes after the pick.
+- Android Browse: the picked bytes arrive through the inbox; `lib.rs:2640` `drain_inbox` calls `self.run("file.open", {path, data})`, which hits the same guard.
+- Android Recent: `backstage.rs:718-729` `open_recent` hands a `content://` location to the host (`open_location`) before `run`, so the guard is skipped at that point. The host then reads the bytes and they arrive through the inbox at `lib.rs:2640`, which does pass the guard. So the prompt still appears, after the read. Cancel discards the bytes already read; nothing is lost.
+
+Device check (emulator-5554, `ai.storyteller.wordcraft.native`, focus checked before each screenshot; no Word screenshots; the picker is DocumentsUI):
+- Typed "Unsaved42" into the sample document, no save. Screenshot `o20_05_typed.png`.
+- Recent, existing file "The Open Studio Handbook (4).docx": prompt shown (`o20_08_recent_handbook4.png`).
+- Recent, Cancel: "Unsaved42" kept (`o20_09_recent_cancel.png`).
+- Browse, pick quokka.docx: prompt shown after the picker (`o20_11_browse_pick.png`).
+- Browse, Don't Save: quokka.docx opened, title "quokka" (`o20_12_dontsave.png`).
+- Recent entry "keepme.docx" was deleted earlier, so it showed the "no longer there" notice and kept the document (`o20_07_recent_keepme.png`). That is the Update 19 behaviour.
+
+Not run: Save and Cancel from the prompt for Browse and Recent on device; the Save path on device.
+
+Step 4 (0-byte stream): `crates/engine/src/cmd/file.rs:236-240` still opens an empty file as a blank document. The prompt now runs before that command, so unsaved work is asked about first. Don't Save still replaces the document with the blank one. Left as is.
