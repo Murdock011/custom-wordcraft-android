@@ -479,10 +479,20 @@ pub fn finish(app: &mut WordApp, ctx: &egui::Context, d: &ColorsDialog) {
     apply(app, ctx, &d.target, &hex);
 }
 
+/// The Colors dialog's width on a desktop window.
+const FULL_WIDTH: f32 = 430.0;
+
+/// The dialog's content width in a window `screen` points wide: the full width, or on a phone what
+/// fits inside the screen with the dialog frame's margins.
+fn dialog_width(screen: f32) -> f32 {
+    FULL_WIDTH.min(screen - 56.0).max(200.0)
+}
+
 /// The dialog's contents. `Some(true)` for OK, `Some(false)` for Cancel.
 fn body(ui: &mut Ui, d: &mut ColorsDialog) -> Option<bool> {
     let t = Tokens::get(ui.ctx());
-    ui.set_width(430.0);
+    let width = dialog_width(ui.ctx().content_rect().width());
+    ui.set_width(width);
     ui.label(egui::RichText::new(tl!("Colors")).font(crate::theme::semibold(14.0)));
     ui.add_space(6.0);
     ui.horizontal(|ui| {
@@ -493,19 +503,30 @@ fn body(ui: &mut Ui, d: &mut ColorsDialog) -> Option<bool> {
         }
     });
     ui.separator();
-    ui.horizontal(|ui| {
+    // On a phone the swatch goes under the picker instead of beside it.
+    let stacked = width < FULL_WIDTH;
+    let picker = |ui: &mut Ui, d: &mut ColorsDialog| {
         ui.vertical(|ui| {
-            ui.set_width(330.0);
+            ui.set_width(if stacked { width } else { 330.0 });
             match d.tab {
                 ColorsTab::Standard => standard(ui, d),
                 ColorsTab::Custom => custom(ui, d),
             }
         });
-        ui.vertical(|ui| {
-            ui.add_space(110.0);
-            preview(ui, d, &t);
+    };
+    if stacked {
+        picker(ui, d);
+        ui.add_space(6.0);
+        preview(ui, d, &t);
+    } else {
+        ui.horizontal(|ui| {
+            picker(ui, d);
+            ui.vertical(|ui| {
+                ui.add_space(110.0);
+                preview(ui, d, &t);
+            });
         });
-    });
+    }
     let mut out = None;
     ui.add_space(8.0);
     ui.horizontal(|ui| {
@@ -610,7 +631,7 @@ fn custom(ui: &mut Ui, d: &mut ColorsDialog) {
     ui.label(tl!("Colors:"));
     ui.horizontal(|ui| {
         // Hue across, saturation up; drawn at the middle lightness.
-        let (field, fresp) = ui.allocate_exact_size(vec2(280.0, 170.0), Sense::click_and_drag());
+        let (field, fresp) = ui.allocate_exact_size(vec2((ui.available_width() - 48.0).clamp(120.0, 280.0), 170.0), Sense::click_and_drag());
         let mut mesh = egui::Mesh::default();
         let (cols, rows) = (36u32, 6u32);
         for j in 0..=rows {
@@ -843,5 +864,38 @@ mod tests {
         let mut value = String::new();
         take_field(&ctx, id, &mut value);
         assert_eq!(value, "7A3EC8");
+    }
+
+    /// A phone screen (360 to 411 pt wide) shows the whole dialog, on both tabs; a desktop window
+    /// keeps the full width.
+    #[test]
+    fn colors_dialog_fits_a_phone_screen() {
+        assert_eq!(dialog_width(1400.0), FULL_WIDTH);
+        for screen in [360.0_f32, 411.0] {
+            for tab in [ColorsTab::Standard, ColorsTab::Custom] {
+                let ctx = egui::Context::default();
+                crate::theme::install_fonts(&ctx);
+                let mut d = ColorsDialog::new(Some(Rgb(255, 0, 0)), Target::cmd("format.color"));
+                d.tab = tab;
+                let mut content = Rect::NOTHING;
+                for _ in 0..3 {
+                    let input = egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(screen, 800.0))),
+                        ..Default::default()
+                    };
+                    ctx.run_ui(input, |ui| {
+                        egui::Modal::new(Id::new("test.colorsDialog")).show(ui.ctx(), |ui| {
+                            body(ui, &mut d);
+                            content = ui.min_rect();
+                        });
+                    })
+                    .drop_without_applying_deltas();
+                }
+                assert!(
+                    content.left() >= 8.0 && content.right() <= screen - 8.0,
+                    "{tab:?} at {screen} pt wide: the dialog spans {content:?}"
+                );
+            }
+        }
     }
 }

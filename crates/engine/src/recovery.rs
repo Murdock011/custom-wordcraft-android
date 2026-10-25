@@ -77,6 +77,14 @@ impl Session {
             self.recovery = Some(r);
         }
     }
+    /// Asks for a recovery copy now rather than at the next interval. A host about to be backgrounded
+    /// calls this, so the last edits are not left to a tick that may never run.
+    pub fn flush_recovery(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(r) = &mut self.recovery {
+            r.flush();
+        }
+    }
     pub fn recovery_wait(&self) -> Option<std::time::Duration> {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(r) = &self.recovery

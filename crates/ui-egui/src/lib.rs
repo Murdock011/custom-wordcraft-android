@@ -68,6 +68,7 @@ pub mod objects;
 pub mod options;
 pub mod panes;
 pub mod paste_picture;
+pub mod phone;
 pub mod previews;
 pub mod print_page;
 pub mod printing;
@@ -116,13 +117,18 @@ pub struct Services {
     pub open_async: Option<Box<dyn Fn(&str)>>,
     /// Web: files (name, bytes) delivered asynchronously (picker, drag and drop).
     pub inbox: Option<Inbox>,
+    /// Native hosts whose documents are not file paths (Android content URIs). Asked about a
+    /// Recent entry before the file system: `true` means the host takes the location, reads the
+    /// document and delivers it through `inbox`, and reports a failure on the status line.
+    pub open_location: Option<Box<dyn Fn(&str) -> bool>>,
     /// Web: pictures pasted from the browser's clipboard (the bytes; the name is ignored). Kept
     /// apart from `inbox` because a paste only lands in the document when the page is the edit
     /// target (#1349), where a dropped or opened file always lands.
     pub pasted: Option<Inbox>,
-    /// Web: hand bytes to the browser as a download. An error means no download started (the
-    /// browser can't tell the page whether the user then kept the file).
-    pub download: Option<Box<dyn Fn(&str, &[u8]) -> Result<(), String>>>,
+    /// Web: hand bytes to the browser as a download. The flag is true for Save As (the host should
+    /// ask where to put the file). An error means no download started (the browser can't tell the
+    /// page whether the user then kept the file).
+    pub download: Option<Box<dyn Fn(&str, &[u8], bool) -> Result<(), String>>>,
     /// Web: saves that `download` started and that finish later (the browser's save picker,
     /// #1315). The hook starts a ticket for such a save and reports how it ended; until then the
     /// document's save isn't confirmed, and a New/Open held back by the Save Changes prompt waits.
@@ -585,6 +591,10 @@ pub struct WordApp {
     /// The Find query and result count [`WordApp::ensure_find_fonts`] last looked at.
     find_fonts_for: Option<(String, usize, u64)>,
     fonts_frames: u32,
+    /// The phone layout has set Page Width once this session ([`phone::active`]).
+    phone_fitted: bool,
+    /// Whether the phone layout is on this frame ([`phone::active`]), set at the top of `ui`.
+    pub(crate) phone: bool,
     /// The effective interface theme last installed in egui ([`theme::apply`]).
     applied_theme: Option<theme::Appearance>,
     /// The display scale (native pixels per point) seen in the last frame, 1.0 before the first;
@@ -722,6 +732,8 @@ impl WordApp {
             recent_fonts_for: Vec::new(),
             find_fonts_for: None,
             fonts_frames: 0,
+            phone_fitted: false,
+            phone: false,
             applied_theme: None,
             native_scale: 1.0,
             legacy_interface_size: None,
@@ -1033,7 +1045,7 @@ impl WordApp {
                 let _ = saves.take_started();
             }
             if let Some(d) = &self.services.download
-                && let Err(e) = d(&name, &bytes)
+                && let Err(e) = d(&name, &bytes, id == "file.saveAs")
             {
                 let msg = i18n::fmt(tl!("Couldn't download {name}: {error}"), &[("name", &name), ("error", &e)]);
                 log::error!("download of {name} failed: {e}");
@@ -2406,9 +2418,28 @@ impl WordApp {
     }
 
     /// Lay out the window.
+    /// Whether Android Back has something open to close: a dialog or prompt (Back is its Escape),
+    /// a phone sheet page or menu, Backstage, a context menu, or a selection (Back collapses it,
+    /// so the app stays open). The web shell tells the Android
+    /// shell (`window.wcCanGoBack`).
+    pub fn can_go_back(&self, ctx: &egui::Context) -> bool {
+        self.dialog.is_some() || phone::can_go_back(ctx) || self.ui.backstage || self.canvas.context_menu_open || !self.session.sel.is_collapsed()
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        let ctx_escape = ui.ctx().input(|i| i.key_pressed(egui::Key::Escape));
+        if ctx_escape && self.ui.backstage {
+            self.ui.backstage = false;
+        }
         let t0 = now_ms();
         let ctx = ui.ctx().clone();
+        self.phone = phone::active(&ctx);
+        // On the web phone a tap only places the caret: two quick taps are not a double-click that
+        // selects a word (a WebView tap can arrive as two presses at once). The native Android
+        // host gets a real double-tap, so only the wasm build gates it.
+        if self.phone && cfg!(target_arch = "wasm32") {
+            ctx.options_mut(|o| o.input_options.max_double_click_delay = 0.0);
+        }
         i18n::set_current(i18n::Lang::from_pref(&self.ui.language));
         // Animation effects off: egui's scroll areas get a wheel notch whole, not eased in.
         if !self.animations_on() {
@@ -2435,10 +2466,28 @@ impl WordApp {
             backstage::show(self, ui);
         } else if !self.has_document() {
             // No document open (#1129): the ribbon greyed out but for Help, and no page.
-            chrome::title_bar(self, ui);
-            ribbon::show(self, ui);
-            chrome::status_bar(self, ui);
+            if phone::active(&ctx) {
+                phone::top_bar(self, ui);
+                phone::status_line(self, ui);
+            } else {
+                chrome::title_bar(self, ui);
+                ribbon::show(self, ui);
+                chrome::status_bar(self, ui);
+            }
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |_| {});
+        } else if phone::active(&ctx) {
+            // A phone: touch bars around the page. It opens in Web Layout, the edit view: text
+            // reflows to the screen at a readable size. View › Print view switches to the pages.
+            if !self.phone_fitted {
+                self.phone_fitted = true;
+                let _ = self.run("view.webLayout", json!({}));
+            }
+            phone::top_bar(self, ui);
+            phone::status_line(self, ui);
+            phone::bottom_bar(self, ui);
+            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
+                canvas::show(self, ui);
+            });
         } else {
             let screen = chrome::Screen::of(&self.session.view);
             // Focus and Full Screen (#1678) take the whole screen, with only their slim bar.
@@ -2540,7 +2589,7 @@ impl WordApp {
             return;
         }
         let on_chrome = on_focus_ribbon || ctx.layer_id_at(pos).is_none_or(|l| l.order == egui::Order::Background);
-        if on_chrome && ctx.memory(|m| m.focused().is_none()) && !egui::Popup::is_any_open(ctx) {
+        if on_chrome && ctx.memory(|m| m.focused().is_none()) && !egui::Popup::is_any_open(ctx) && !phone::sheet_open(ctx) {
             self.canvas.want_focus = true;
             // The page has already been drawn, so it only sees `want_focus` next frame, and its own
             // `focused` flag (which gates the keys) isn't recomputed until then either. Claim both
@@ -4696,6 +4745,397 @@ mod tests {
         assert_eq!(a.canvas.balloon, None, "a click on the page leaves the balloon");
     }
 
+    /// Phone long press selects the whole word under the finger, whichever half of a letter (or of
+    /// the last letter) it lands on: it used to drop the last letter ("peopl").
+    #[test]
+    fn phone_long_press_selects_whole_words() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        let words = ["alpha", "people", "otherwise", "borrows"];
+        a.run("text.insert", json!({"text": words.join(" ")})).unwrap();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 800.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        let btn = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        assert!(a.phone, "a 400 pt wide screen is a phone");
+        let Some(page) = a.canvas.page_rects.first().copied() else { panic!("the canvas laid out") };
+        let mut bad = Vec::new();
+        let mut seen = 0;
+        for yi in 0..12 {
+            let y = page.top() + 10.0 * yi as f32 + 20.0;
+            for xi in 0..40 {
+                let at = egui::pos2(page.left() + 4.0 * xi as f32 + 4.0, y);
+                a.session.sel = wordcraft_engine::Selection::caret(a.session.sel.focus.clone());
+                frame(&mut a, vec![egui::Event::PointerMoved(at)]);
+                frame(&mut a, vec![btn(at, true)]);
+                for _ in 0..40 {
+                    frame(&mut a, Vec::new());
+                }
+                frame(&mut a, vec![btn(at, false)]);
+                for _ in 0..3 {
+                    frame(&mut a, Vec::new());
+                }
+                let text = a.session.selected_text();
+                if text.trim().is_empty() {
+                    continue;
+                }
+                seen += 1;
+                if !words.contains(&text.trim()) {
+                    bad.push((at, text));
+                }
+            }
+        }
+        assert!(seen > 0, "some presses landed on text");
+        assert!(bad.is_empty(), "partial words selected: {bad:?}");
+    }
+
+    /// A phone long press selects the whole word and opens the selection menu (Cut, Copy...).
+    #[test]
+    fn phone_long_press_opens_the_selection_menu() {
+        let ctx = egui::Context::default();
+        let mut a = app();
+        a.run("text.insert", json!({"text": "alpha people otherwise borrows"})).unwrap();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 800.0));
+        let mut t = 0.0;
+        let mut frame = |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        let btn = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        let Some(page) = a.canvas.page_rects.first().copied() else { panic!("the canvas laid out") };
+        // Over the word "people" on the first line (about x 60..100 of the page).
+        let at = egui::pos2(page.left() + 70.0, page.top() + 20.0);
+        frame(&mut a, vec![egui::Event::PointerMoved(at)]);
+        frame(&mut a, vec![btn(at, true)]);
+        for _ in 0..40 {
+            frame(&mut a, Vec::new());
+        }
+        frame(&mut a, vec![btn(at, false)]);
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        assert_eq!(a.session.selected_text().trim(), "people", "the long press selects the whole word");
+        assert!(a.canvas.context_menu_open, "the long press opens the selection menu");
+    }
+
+    /// Phone frames for the tests below: a screen of `w` by 800 points, `frame` runs one frame.
+    fn phone_frames(w: f32) -> (egui::Context, impl FnMut(&mut WordApp, Vec<egui::Event>)) {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, 800.0));
+        let mut t = 0.0;
+        let run = ctx.clone();
+        let frame = move |a: &mut WordApp, events: Vec<egui::Event>| {
+            t += 1.0 / 60.0;
+            let input = egui::RawInput { events, time: Some(t), screen_rect: Some(screen), ..Default::default() };
+            run.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            })
+            .drop_without_applying_deltas();
+        };
+        (ctx, frame)
+    }
+
+    /// Native Android keeps the platform double-click delay, so a double-tap selects the word.
+    /// (The web phone sets it to 0 because a WebView tap can arrive as two presses.)
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn phone_double_tap_selects_a_word_on_native() {
+        let mut a = app();
+        a.run("text.insert", json!({"text": "alpha people otherwise borrows"})).unwrap();
+        let (ctx, mut frame) = phone_frames(400.0);
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        assert!(a.phone, "a 400 pt wide screen is a phone");
+        let delay = ctx.options(|o| o.input_options.max_double_click_delay);
+        assert_eq!(delay, egui::InputOptions::default().max_double_click_delay, "the native phone keeps egui's delay");
+        let Some(page) = a.canvas.page_rects.first().copied() else { panic!("the canvas laid out") };
+        let at = egui::pos2(page.left() + 70.0, page.top() + 20.0);
+        let btn = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(&mut a, vec![egui::Event::PointerMoved(at)]);
+        for _ in 0..2 {
+            frame(&mut a, vec![btn(at, true)]);
+            frame(&mut a, vec![btn(at, false)]);
+            for _ in 0..3 {
+                frame(&mut a, Vec::new());
+            }
+        }
+        for _ in 0..10 {
+            frame(&mut a, Vec::new());
+        }
+        assert_eq!(a.session.selected_text().trim(), "people", "two quick taps select the word");
+    }
+
+    /// The selection handles exist only for a non-empty selection on the phone.
+    #[test]
+    fn phone_selection_handles_only_for_a_selection() {
+        for (w, phone) in [(400.0_f32, true), (1200.0, false)] {
+            let mut a = app();
+            a.run("text.insert", json!({"text": "alpha people otherwise borrows"})).unwrap();
+            let (_, mut frame) = phone_frames(w);
+            for _ in 0..30 {
+                frame(&mut a, Vec::new());
+            }
+            assert_eq!(a.phone, phone);
+            assert!(a.canvas.sel_handles.is_none(), "a caret has no handles");
+            a.run("select.text", json!({"text": "people"})).unwrap();
+            for _ in 0..3 {
+                frame(&mut a, Vec::new());
+            }
+            assert_eq!(a.canvas.sel_handles.is_some(), phone, "handles on the phone only, for a selection");
+        }
+    }
+
+    /// Escape with the phone selection menu open (Android Back sends Escape) closes the menu and
+    /// keeps the selection, as Word does. Escape with nothing open collapses it.
+    #[test]
+    fn phone_escape_with_the_menu_open_keeps_the_selection() {
+        let mut a = app();
+        a.run("text.insert", json!({"text": "alpha people otherwise borrows"})).unwrap();
+        let (_, mut frame) = phone_frames(400.0);
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        a.run("select.text", json!({"text": "people"})).unwrap();
+        a.canvas.context_menu_open = true;
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        assert!(a.canvas.context_menu_open, "the menu is open");
+        let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        frame(&mut a, vec![esc]);
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        assert!(!a.canvas.context_menu_open, "Escape closes the menu");
+        assert_eq!(a.session.selected_text(), "people", "the selection range is unchanged");
+    }
+
+    /// With nothing open, Back has a selection to close: it is Escape, so the selection collapses
+    /// and the app stays open (Back with nothing to close sends the app to the background).
+    #[test]
+    fn phone_back_with_only_a_selection_collapses_it() {
+        let mut a = app();
+        a.run("text.insert", json!({"text": "alpha people otherwise borrows"})).unwrap();
+        let (ctx, mut frame) = phone_frames(400.0);
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        a.run("select.text", json!({"text": "people"})).unwrap();
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        assert!(a.can_go_back(&ctx), "a selection is something Back can close");
+        let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        frame(&mut a, vec![esc]);
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        assert!(a.session.sel.is_collapsed(), "Back collapses the selection to a caret");
+        assert!(!a.can_go_back(&ctx), "nothing left to close");
+    }
+
+    /// A status message (a failed open, say) is drawn on the phone, where there is no status bar.
+    #[test]
+    fn phone_status_message_is_drawn() {
+        fn drawn(a: &mut WordApp, ctx: &egui::Context, msg: &str) -> bool {
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 800.0))), ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                a.logic(ui.ctx());
+                a.ui(ui);
+            });
+            out.textures_delta.clear();
+            fn has(shape: &egui::Shape, msg: &str) -> bool {
+                match shape {
+                    egui::Shape::Text(t) => t.galley.job.text.contains(msg),
+                    egui::Shape::Vec(v) => v.iter().any(|s| has(s, msg)),
+                    _ => false,
+                }
+            }
+            out.shapes.iter().any(|c| has(&c.shape, msg))
+        }
+        let mut a = app();
+        a.run("text.insert", json!({"text": "Body"})).unwrap();
+        let ctx = egui::Context::default();
+        for _ in 0..30 {
+            drawn(&mut a, &ctx, "");
+        }
+        a.status("Couldn't open quokka.docx: it was moved or deleted.");
+        // An Area is laid out before it is painted: the first frame it appears in is a sizing pass.
+        drawn(&mut a, &ctx, "");
+        assert!(drawn(&mut a, &ctx, "Couldn't open quokka.docx"), "the phone shows the status message");
+        // After its time the strip goes away.
+        a.status_msg = Some(("Old notice".into(), crate::now_ms() - 60_000.0));
+        assert!(!drawn(&mut a, &ctx, "Old notice"), "an old message is not kept on screen");
+    }
+
+    /// Dragging the end handle grows the selection; the start stays where it was.
+    #[test]
+    fn phone_end_handle_drag_extends_the_selection() {
+        let mut a = app();
+        a.run("text.insert", json!({"text": "alpha people otherwise borrows"})).unwrap();
+        let (_, mut frame) = phone_frames(400.0);
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        a.run("select.text", json!({"text": "people"})).unwrap();
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        let start = a.session.sel.ordered().0;
+        let Some([_, end]) = a.canvas.sel_handles else { panic!("the selection has handles") };
+        let btn = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        let grab = end + egui::vec2(0.0, -2.0);
+        frame(&mut a, vec![egui::Event::PointerMoved(grab)]);
+        frame(&mut a, vec![btn(grab, true)]);
+        let before = a.session.selected_text().len();
+        let mut at = grab;
+        for _ in 0..12 {
+            at += egui::vec2(8.0, 0.0);
+            frame(&mut a, vec![egui::Event::PointerMoved(at)]);
+        }
+        frame(&mut a, vec![btn(at, false)]);
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        assert!(a.session.selected_text().len() > before, "the selection grew: {:?}", a.session.selected_text());
+        assert!(a.session.selected_text().starts_with("people"), "the start stayed put");
+        assert_eq!(a.session.sel.ordered().0, start, "the anchor is the start");
+    }
+
+    /// Dragging a handle on the phone in Web Layout never scrolls the page sideways: the text fits
+    /// the width, so the horizontal offset stays where it was (the page moved about 18 px in Update 13).
+    #[test]
+    fn phone_handle_drag_does_not_scroll_the_page_sideways() {
+        for mode in [wordcraft_layout::ViewMode::Web, wordcraft_layout::ViewMode::Print] {
+            let mut a = app();
+            a.run("text.insert", json!({"text": "alpha people otherwise borrows ".repeat(5)})).unwrap();
+            let (_, mut frame) = phone_frames(400.0);
+            for _ in 0..30 {
+                frame(&mut a, Vec::new());
+            }
+            a.session.view.mode = mode;
+            for _ in 0..30 {
+                frame(&mut a, Vec::new());
+            }
+            a.run("select.text", json!({"text": "otherwise"})).unwrap();
+            for _ in 0..3 {
+                frame(&mut a, Vec::new());
+            }
+            let x0 = a.canvas.scroll_offset.x;
+            let Some([start_handle, _]) = a.canvas.sel_handles else { panic!("the selection has handles") };
+            let btn = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+            frame(&mut a, vec![egui::Event::PointerMoved(start_handle)]);
+            frame(&mut a, vec![btn(start_handle, true)]);
+            let mut at = start_handle;
+            let mut worst = 0.0_f32;
+            for _ in 0..60 {
+                if a.session.selected_text().starts_with("people") {
+                    break;
+                }
+                at += egui::vec2(-2.0, 0.0);
+                frame(&mut a, vec![egui::Event::PointerMoved(at)]);
+                worst = worst.max((a.canvas.scroll_offset.x - x0).abs());
+            }
+            frame(&mut a, vec![btn(at, false)]);
+            for _ in 0..3 {
+                frame(&mut a, Vec::new());
+            }
+            assert!(a.session.selected_text().starts_with("people"), "{mode:?}: the drag moved the start");
+            assert!(worst < 0.5, "{mode:?}: the page scrolled sideways by {worst} during the drag");
+        }
+    }
+
+    /// Dragging the start handle left grows the selection backwards; the end stays where it was.
+    #[test]
+    fn phone_start_handle_drag_extends_the_selection_backwards() {
+        let mut a = app();
+        a.run("text.insert", json!({"text": "alpha people otherwise borrows ".repeat(5)})).unwrap();
+        let (_, mut frame) = phone_frames(400.0);
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        a.run("select.text", json!({"text": "otherwise"})).unwrap();
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        // The selection's line has a line below it, so the handle's centre sits over the next line.
+        let end = a.session.sel.ordered().1;
+        let Some([start_handle, _]) = a.canvas.sel_handles else { panic!("the selection has handles") };
+        let btn = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        // Press on the handle's centre, as a finger does: it sits below the line it marks.
+        let grab = start_handle;
+        frame(&mut a, vec![egui::Event::PointerMoved(grab)]);
+        frame(&mut a, vec![btn(grab, true)]);
+        let mut at = grab;
+        for _ in 0..60 {
+            if a.session.selected_text().starts_with("people") {
+                break;
+            }
+            at += egui::vec2(-2.0, 0.0);
+            frame(&mut a, vec![egui::Event::PointerMoved(at)]);
+        }
+        frame(&mut a, vec![btn(at, false)]);
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        let text = a.session.selected_text();
+        assert!(text.starts_with("people"), "the start moved back a word: {text:?}");
+        assert!(text.ends_with("otherwise"), "the end stayed put: {text:?}");
+        assert_eq!(a.session.sel.ordered().1, end, "the end position is unchanged");
+    }
+
+    /// A press a few points off the handle's centre, held still, does not move the selection.
+    #[test]
+    fn phone_handle_press_off_centre_does_not_move_the_selection() {
+        let mut a = app();
+        a.run("text.insert", json!({"text": "alpha people otherwise borrows"})).unwrap();
+        let (_, mut frame) = phone_frames(400.0);
+        for _ in 0..30 {
+            frame(&mut a, Vec::new());
+        }
+        a.run("select.text", json!({"text": "people"})).unwrap();
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
+        let before = a.session.sel.clone();
+        let Some([start, end]) = a.canvas.sel_handles else { panic!("the selection has handles") };
+        let btn = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        for handle in [start, end] {
+            let off = handle + egui::vec2(4.0, 4.0);
+            frame(&mut a, vec![egui::Event::PointerMoved(off)]);
+            frame(&mut a, vec![btn(off, true)]);
+            for _ in 0..5 {
+                frame(&mut a, Vec::new());
+            }
+            frame(&mut a, vec![btn(off, false)]);
+            for _ in 0..3 {
+                frame(&mut a, Vec::new());
+            }
+            assert_eq!(a.session.sel.ordered(), before.ordered(), "a press off the handle's centre moves nothing");
+        }
+    }
+
     /// #1055: with "only for the selected text" the margin column is gone and just the comment
     /// under the caret floats, beside the page in a wide window and over its edge in a narrow one.
     #[test]
@@ -5045,9 +5485,11 @@ mod tests {
             control_frame(&mut a, &ctx, focused);
         }
         assert!(matches!(a.dialog, Some(dialogs::Dialog::SaveChanges { .. })));
+        assert!(a.can_go_back(&ctx), "Android Back closes the prompt instead of leaving the app");
         control_input(&mut a, &ctx, "ui.key", json!({"key": "Escape"}));
         control_frame(&mut a, &ctx, false);
         assert!(a.dialog.is_none());
+        assert!(!a.can_go_back(&ctx));
         assert!(a.session.dirty && a.has_document() && !a.quit_requested);
         assert_eq!(body_text(&a), "Seed", "Cancel preserves the unsaved document");
     }
@@ -6894,13 +7336,13 @@ mod tests {
     fn web_downloads_that_drop_content_leave_the_document_unsaved() {
         for name in ["novel.png", "novel.txt", "novel.md"] {
             let mut a = typed();
-            a.services.download = Some(Box::new(|_, _| Ok(())));
+            a.services.download = Some(Box::new(|_, _, _| Ok(())));
             a.execute("file.saveAs", json!({"path": name})).unwrap();
             assert!(a.session.dirty, "{name}");
         }
         for name in ["novel.docx", "novel.docm", "novel.DOTX", "novel.dotm", "novel.odt", "novel.rtf"] {
             let mut a = typed();
-            a.services.download = Some(Box::new(|_, _| Ok(())));
+            a.services.download = Some(Box::new(|_, _, _| Ok(())));
             a.execute("file.saveAs", json!({"path": name})).unwrap();
             assert!(!a.session.dirty, "{name}");
         }
@@ -6959,7 +7401,7 @@ mod tests {
     #[test]
     fn a_failed_download_is_not_a_save() {
         let mut a = typed();
-        a.services.download = Some(Box::new(|_, _| Err("blocked by the browser".into())));
+        a.services.download = Some(Box::new(|_, _, _| Err("blocked by the browser".into())));
         assert!(a.execute("file.save", json!({})).is_err());
         assert!(a.session.dirty);
 
@@ -6982,7 +7424,7 @@ mod tests {
         let saves = async_saves::AsyncSaves::default();
         let last = std::rc::Rc::new(std::cell::Cell::new(0));
         let (hook, seen) = (saves.clone(), last.clone());
-        a.services.download = Some(Box::new(move |_, _| {
+        a.services.download = Some(Box::new(move |_, _, _| {
             seen.set(hook.start());
             Ok(())
         }));
@@ -7488,7 +7930,7 @@ mod tests {
     /// switch is blocked with a reason instead of being on while nothing is saved.
     #[test]
     fn autosave_is_unavailable_in_the_browser() {
-        let services = Services { download: Some(Box::new(|_: &str, _: &[u8]| Ok(()))), ..Default::default() };
+        let services = Services { download: Some(Box::new(|_: &str, _: &[u8], _: bool| Ok(()))), ..Default::default() };
         let mut a = WordApp::new(Session::new(wordcraft_doc::Document::new()), services);
         a.run("text.insert", json!({"text": "Hello"})).unwrap();
         a.run("file.save", json!({"path": "draft.docx"})).unwrap();
@@ -7554,7 +7996,7 @@ mod tests {
         let got: std::rc::Rc<std::cell::RefCell<Vec<(String, Vec<u8>)>>> = Default::default();
         let sink = got.clone();
         let services = Services {
-            download: Some(Box::new(move |n: &str, b: &[u8]| {
+            download: Some(Box::new(move |n: &str, b: &[u8], _: bool| {
                 sink.borrow_mut().push((n.to_string(), b.to_vec()));
                 Ok(())
             })),

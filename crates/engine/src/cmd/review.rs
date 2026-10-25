@@ -339,10 +339,19 @@ fn list_comments(s: &mut Session, _: &Value) -> CmdResult {
                     "id": id, "author": c.author, "date": c.date, "resolved": c.resolved, "parent": c.parent,
                     "text": s.doc.plain_text(StoryRef::Part(c.part)),
                     "anchor": pos.as_ref().map(pos_json),
+                    "anchorText": pos.as_ref().map(|p| anchor_text(s, *id, p)).unwrap_or_default(),
                 }))
             })
             .collect(),
     ))
+}
+
+/// The text a comment is anchored to: from its start to its end in the same paragraph (empty when
+/// the range crosses paragraphs), capped at 200 characters.
+fn anchor_text(s: &Session, id: u32, start: &Pos) -> String {
+    let Some(p) = s.doc.para(start.story, &start.path) else { return String::new() };
+    let end = p.object_offsets().into_iter().find(|o| matches!(p.object_at(*o), Some(InlineObject::CommentEnd { id: e }) if *e == id));
+    end.and_then(|e| p.text.get(start.off..e)).map(|t| t.chars().filter(|c| *c != wordcraft_doc::para::OBJ).take(200).collect()).unwrap_or_default()
 }
 
 fn nav_comment(s: &mut Session, dir: i32) -> CmdResult {

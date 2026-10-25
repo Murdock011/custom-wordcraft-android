@@ -550,7 +550,7 @@ pub fn selected_all(s: &Session, max: usize) -> Vec<(Pos, InlineObject)> {
             } else {
                 (path != a.path || off >= a.off) && (path != b.path || off < b.off)
             };
-            if !inside {
+            if !inside || (a == b && s.view.draw.dismissed.as_ref() == Some(&Pos { story, path: path.clone(), off })) {
                 continue;
             }
             if let Some(o) = p.object_at(off).filter(|o| o.is_drawing()) {

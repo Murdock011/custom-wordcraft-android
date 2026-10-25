@@ -94,6 +94,13 @@ fn sync_dir(path: &Path) -> io::Result<()> {
     }
     Ok(())
 }
+/// Whether a failed lock means the platform has no file locks at all (std reports `Unsupported` on
+/// Android), not that another process holds the record or the disk failed. Android runs one
+/// process, so the record is then unguarded only against a second process that does not exist.
+// ponytail: no native flock here (the crate forbids unsafe). Add one if a second process can open the store.
+fn no_file_locks(e: &std::fs::TryLockError) -> bool {
+    matches!(e, std::fs::TryLockError::Error(err) if err.kind() == io::ErrorKind::Unsupported)
+}
 fn id_ok(id: &str) -> bool {
     id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit())
 }
@@ -164,11 +171,15 @@ impl Store {
             match file.try_lock() {
                 Ok(()) => return Ok(file),
                 Err(std::fs::TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(10)),
-                Err(e) => return Err(format!("recovery copy is in use or cannot be locked: {e}")),
+                Err(e) if no_file_locks(&e) => return Ok(file),
+                Err(e) => return Err(format!("recovery copy is in use or cannot be locked: {e:?}")),
             }
         }
-        file.try_lock().map_err(|e| format!("recovery copy is in use or cannot be locked: {e}"))?;
-        Ok(file)
+        match file.try_lock() {
+            Ok(()) => Ok(file),
+            Err(e) if no_file_locks(&e) => Ok(file),
+            Err(e) => Err(format!("recovery copy is in use or cannot be locked: {e:?}")),
+        }
     }
     fn acquire(&mut self, id: &str) -> Result<(), String> {
         if !self.locks.contains_key(id) {
@@ -566,6 +577,11 @@ impl Recovery {
         }
         Ok(())
     }
+    /// The next tick writes a copy whatever the interval and revision say.
+    pub fn flush(&mut self) {
+        self.due = Instant::now();
+        self.revision = None;
+    }
     pub fn refresh(&mut self) -> Result<(), String> {
         self.queue(Job::Scan)
     }
@@ -713,12 +729,39 @@ mod tests {
         settle(s);
     }
 
+    /// A host about to be backgrounded flushes: the typing made since the last interval is copied
+    /// now, not left to the next 10-second tick (Android kills backgrounded apps without warning).
+    #[test]
+    fn flush_copies_the_latest_edit_before_the_interval() {
+        let profile = Temp::new();
+        let mut s = session(&profile.0);
+        s.run("document.setText", &json!({"text": "Typed just now"})).unwrap();
+        s.recovery_tick();
+        settle(&mut s);
+        assert!(s.recovery_documents().is_empty(), "no copy before the interval");
+        s.flush_recovery();
+        s.recovery_tick();
+        settle(&mut s);
+        assert_eq!(s.recovery_documents().len(), 1, "the flush writes the copy");
+    }
+
     /// #3140: a save that lands right before the app closes can race the process exiting before
     /// the now-redundant recovery copy is actually removed, so the next launch wrongly offers to
     /// recover a document that was in fact saved cleanly. `finish_recovery` (desktop hosts call it
     /// on exit, the same as they wait for pending print jobs) must discard it synchronously
     /// instead, with no regular tick in between — simulating closing right after Save, not after
     /// however long it'd take the next normal autosave tick to notice and clean up.
+    /// Android's std has no file locks (`try_lock` is `Unsupported`): the record opens unlocked there.
+    /// A live owner (`WouldBlock`) and a real I/O fault still fail.
+    #[test]
+    fn only_a_platform_without_file_locks_opens_a_record_unlocked() {
+        let unsupported = std::fs::TryLockError::Error(io::Error::from(io::ErrorKind::Unsupported));
+        assert!(no_file_locks(&unsupported));
+        assert!(!no_file_locks(&std::fs::TryLockError::WouldBlock));
+        let fault = std::fs::TryLockError::Error(io::Error::from(io::ErrorKind::Other));
+        assert!(!no_file_locks(&fault));
+    }
+
     #[test]
     fn finish_recovery_discards_its_own_copy_for_a_document_saved_right_before_exit() {
         let profile = Temp::new();
