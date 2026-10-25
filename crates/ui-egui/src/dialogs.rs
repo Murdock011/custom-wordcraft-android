@@ -2005,7 +2005,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             mixed,
             ..
         } => {
-            ui.horizontal(|ui| {
+            // Wraps on the phone: the three tabs are wider than a 400 pt sheet.
+            ui.horizontal_wrapped(|ui| {
                 for (k, name) in ["Indents and Spacing", "Line and Page Breaks", "Asian Typography"].into_iter().enumerate() {
                     if ui.selectable_label(*tab as usize == k, tl!(name)).clicked() {
                         *tab = k as u8;

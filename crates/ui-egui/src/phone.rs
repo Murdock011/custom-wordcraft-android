@@ -197,6 +197,9 @@ fn rows(tab: usize) -> &'static [(&'static str, &'static str)] {
             ("Paste", "edit.paste"),
             ("Highlight", "format.highlight"),
             ("Font Color", "ui.colors"),
+            // The full Font and Paragraph dialogs; the font row above only picks a family or size.
+            ("Font…", "ui.font"),
+            ("Paragraph…", "ui.paragraph"),
             ("Clear Formatting", "format.clear"),
             ("Save", "file.save"),
             ("Repeat", "edit.repeat"),
@@ -337,6 +340,8 @@ fn run(app: &mut WordApp, id: &str) {
         }
         // Word Count is a dialog; the command itself only returns the numbers.
         "review.wordCount" => app.run("ui.dialog", json!({"name": "wordCount"})),
+        "ui.font" => app.run("ui.dialog", json!({"name": "font"})),
+        "ui.paragraph" => app.run("ui.dialog", json!({"name": "paragraph"})),
         _ => app.run(id, Value::Object(Default::default())),
     };
 }
@@ -1371,6 +1376,8 @@ fn row_icon(id: &str) -> &'static str {
         "edit.paste" => "paste",
         "format.highlight" => "highlight",
         "ui.colors" => "fontcolor",
+        "ui.font" => "fontdialog",
+        "ui.paragraph" => "lineSpacing",
         "format.clear" => "clear",
         "file.save" => "save",
         "edit.repeat" => "redo",
@@ -1583,6 +1590,17 @@ mod tests {
         for (label, id) in rows(PICTURE_TAB) {
             let ok = id.starts_with("picture.") || id.starts_with("arrange.") || matches!(*id, "ui.crop" | "text.delete");
             assert!(ok, "{label} runs {id}");
+        }
+    }
+
+    /// Update 26: Home's sheet has Font… and Paragraph… rows, and each opens its full dialog.
+    #[test]
+    fn home_rows_open_the_font_and_paragraph_dialogs() {
+        for (label, id, dialog) in [("Font…", "ui.font", "font"), ("Paragraph…", "ui.paragraph", "paragraph")] {
+            assert!(rows(0).contains(&(label, id)), "Home has the {label} row");
+            let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+            run(&mut app, id);
+            assert_eq!(app.dialog.as_ref().map(|d| d.name()), Some(dialog), "{label} opens the {dialog} dialog");
         }
     }
 

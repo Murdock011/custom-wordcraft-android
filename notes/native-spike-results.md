@@ -619,3 +619,40 @@ Follow-ups:
 3. file_browser.rs, read_aloud.rs, zotero alert to the sheet host on phone.
 4. Save Changes buttons into footer_row, keeping focus handling.
 5. Number keyboard for DragValue on Android (IME input type), if the host makes it simple.
+
+## Update 26: Font and Paragraph dialogs on the phone (2026-10-25)
+Scope: Home > Font and Home > Paragraph on the phone, the wrap fix they needed, and the keyboard-over-field check.
+
+Route (the gap):
+- The Home sheet had no route to the full dialogs. The font row only opens a family list (`Sub::Font`) and a size list. Added two Home rows, "Font…" and "Paragraph…" (`phone.rs` `rows`, after Font Color), with `run()` mapping `ui.font` and `ui.paragraph` to `ui.dialog` {name: font | paragraph}. Icons: fontdialog, lineSpacing. Test `home_rows_open_the_font_and_paragraph_dialogs` (`phone.rs`).
+- Choice: rows in the Home sheet, not a new control on the font row. The row is 48 pt, like its neighbours, and the sheet already lists the dialogs' siblings there.
+
+Fixes:
+- Paragraph (`dialogs.rs`, Indents and Spacing tab strip): the three tabs were a plain `ui.horizontal`, so "Asian Typography" ran off the right edge and pushed the body wider than the sheet, so the "Don't add space between paragraphs of the same style" checkbox also ran off. Now `horizontal_wrapped`: Asian Typography drops to a second line, and the checkbox text wraps to two lines. Desktop fits on one line and looks the same.
+- Font: no fix needed. Fits at 400 pt.
+
+Device (emulator-5554, `ai.storyteller.wordcraft.native`, Word force-stopped, WordCraft focus checked before each shot):
+- d26_00_launch.png: Recover page (existing drafts). Back arrow used, drafts not discarded.
+- d26_01_editor.png, d26_02_nokbd.png, d26_03_more.png: editor, keyboard hidden, ⋮ sheet with the new Font… and Paragraph… rows.
+- d26_font.png: Font dialog. PASS, no overflow, Cancel | OK pinned.
+- d26_font_cancelled.png: Cancel closes the Font dialog, Home sheet stays.
+- d26_para.png: Paragraph before the fix. FAIL: tab strip and checkbox ran off the right edge.
+- d26_para_after.png: Paragraph after the fix. PASS: tabs wrap, checkbox wraps, Cancel | OK pinned.
+- d26_kb.png: Left indent field tapped, keyboard open. PASS: Cancel and OK stay visible above the keyboard.
+- d26_after_cancel.png: Cancel above the keyboard closes the Paragraph dialog (back to Home sheet). PASS.
+
+Known gaps (not fixed):
+- The Font… and Paragraph… row icons draw small or clipped (fontdialog glyph is a short stroke). Cosmetic, follow-up.
+- Indent fields are DragValues, so the keyboard is the default letters layout. A number keyboard is still the Update 24 follow-up.
+
+Tests (this update):
+- cargo test -p wordcraft-ui-egui: 851 passed, 0 failed, 2 ignored.
+- cargo test -p wordcraft-android: 10 passed, 21 passed (two test binaries).
+- cargo xtask wasm: ok (16 crates).
+- Clippy: not run.
+
+Follow-ups:
+1. Font… / Paragraph… row icons: check the drawn glyphs in `icons.rs` (fontdialog, lineSpacing) at 48 pt.
+2. Number keyboard for DragValue indent and spacing fields on Android (Update 24 follow-up).
+3. file_browser.rs, read_aloud.rs, zotero alert to the phone sheet host.
+4. Save Changes footer (focus handling kept).
