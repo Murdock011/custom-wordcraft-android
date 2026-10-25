@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Original launcher icon background (this fork, MIT OR Apache-2.0): a flat terracotta tile. -->
+<!-- Adaptive launcher icon layer, derived from assets/app-icon/wordcraft.svg (WordCraft contributors, MIT OR Apache-2.0). Converted by hand to a VectorDrawable: rotation and scale baked into the path data. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#D9522B"
+        android:fillColor="#3B5BDB"
         android:pathData="M0,0H108V108H0Z" />
 </vector>
