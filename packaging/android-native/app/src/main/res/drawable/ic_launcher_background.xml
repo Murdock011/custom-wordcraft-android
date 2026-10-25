@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Adaptive launcher icon layer, derived from assets/app-icon/wordcraft.svg (WordCraft contributors, MIT OR Apache-2.0). Converted by hand to a VectorDrawable: rotation and scale baked into the path data. -->
+<!-- Adaptive launcher icon background: solid tile blue of packaging/android-native/icon-source/custom-wordcraft-icon.svg (#3B5BDB, sampled from its render). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
