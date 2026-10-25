@@ -14,6 +14,12 @@
 
 ## What this is
 
+**In short: a UI redesign for Android on top of the WordCraft engine.** Everything that makes
+WordCraft a word processor (the document model, editing commands, layout and pagination,
+.docx and other file formats, proofing, rendering and PDF) is the original WordCraft engine,
+unchanged in purpose. What this fork adds is a phone interface around it and the Android plumbing
+to host it.
+
 An experiment in running [WordCraft](https://github.com/storytold/wordcraft), an open-source,
 Rust word processor by the ArtCraft team, as a **native Android app**: the same document engine
 and egui interface as the desktop build, hosted in a GameActivity with Kotlin bridges for the
