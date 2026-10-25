@@ -8137,6 +8137,46 @@ fn find_replace_and_go_to_open_like_word() {
     assert!(s.run("edit.goto", &json!({"pageBy": i64::MIN})).is_ok(), "hostile numbers never panic");
 }
 
+/// A picture wider than the window column fits it in Web Layout (the text reflows to the window
+/// with 18 pt margins), not only the printed page's text width.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn picture_fits_the_web_layout_column() {
+    let rec = |func: u16, params: &[i16]| {
+        let mut v = ((3 + params.len()) as u32).to_le_bytes().to_vec();
+        v.extend(func.to_le_bytes());
+        params.iter().for_each(|p| v.extend(p.to_le_bytes()));
+        v
+    };
+    // A placeable WMF 450 × 225 points wide (9000 × 4500 units at 1440 per inch).
+    let body = [rec(0x041B, &[4500, 9000, 0, 0]), rec(0, &[])].concat();
+    let mut wmf = 0x9AC6_CDD7u32.to_le_bytes().to_vec();
+    for v in [0i16, 0, 0, 9000, 4500] {
+        wmf.extend(v.to_le_bytes());
+    }
+    wmf.extend(1440u16.to_le_bytes());
+    wmf.extend([0u8; 6]);
+    let words = ((wmf.len() + 18 + body.len()) / 2) as u32;
+    for v in [1u16, 9, 0x300] {
+        wmf.extend(v.to_le_bytes());
+    }
+    wmf.extend(words.to_le_bytes());
+    wmf.extend(0u16.to_le_bytes());
+    wmf.extend(5u32.to_le_bytes());
+    wmf.extend(0u16.to_le_bytes());
+    wmf.extend(body);
+    let dir = scratch_dir("insert-web-column");
+    let path = dir.join("wide.wmf");
+    std::fs::write(&path, &wmf).unwrap();
+
+    let mut s = Session::new(wordcraft_doc::Document::new());
+    s.view.mode = wordcraft_layout::ViewMode::Web;
+    s.view.web_width = 300.0;
+    let r = run(&mut s, "insert.picture", json!({"path": path.to_string_lossy()}));
+    let w = r["width"].as_f64().unwrap_or(0.0);
+    assert!((w - 264.0).abs() < 0.5, "{r}");
+}
+
 /// #802: Insert › Picture takes Windows Metafiles (and EMF) at their own frame size, stored under
 /// their own extension so a save writes them as WMF/EMF parts.
 #[cfg(not(target_arch = "wasm32"))]

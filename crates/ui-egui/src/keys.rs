@@ -409,6 +409,15 @@ pub fn canvas_events(app: &mut WordApp, ctx: &egui::Context) {
                 let _ = app.run(id, json!({}));
             }
             egui::Event::Key { key, pressed: true, modifiers, .. } => {
+                // Escape (and Android Back, which sends it) with the selection menu open closes the
+                // menu only: the selection stays, as in Word. A child list under the menu takes the
+                // key first; the menu stays open for it (`canvas::context_menu`).
+                if key == Key::Escape && app.canvas.context_menu_open {
+                    if !egui::Popup::is_any_open(ctx) {
+                        app.canvas.context_menu_open = false;
+                    }
+                    continue;
+                }
                 if key == Key::Escape && app.session.painter.is_some() {
                     app.session.painter = None;
                     continue;

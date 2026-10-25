@@ -115,6 +115,24 @@ pub struct CanvasState {
     pub context_menu_from_keys: bool,
     /// Where the context menu stands: the right-click point, or below the caret.
     pub context_menu_at: Option<Pos2>,
+    /// A phone long press selected a word: the press point. Its release opens the menu there.
+    pub long_press_at: Option<Pos2>,
+    /// Phone: the selection's start and end handles last drawn (screen points, the handle
+    /// circles' centres). None unless a phone selection is non-empty and visible.
+    pub sel_handles: Option<[Pos2; 2]>,
+    /// Phone: the caret points at the middle of the start and end lines (the handles' edges).
+    /// Hit tests for a handle drag use them, so the finger's place below the line doesn't count.
+    sel_edges: Option<[Pos2; 2]>,
+    /// Phone: the bounding rect of the selection on screen (None unless `sel_handles` is). The
+    /// selection menu is placed clear of it and of the handles.
+    pub sel_bounds: Option<Rect>,
+    /// Phone: the selection menu's size as last drawn, to place it above the selection.
+    pub context_menu_size: egui::Vec2,
+    /// A handle drag in progress: the end of the selection that stays put.
+    handle_drag: Option<Pos>,
+    /// A handle drag in progress: edge point minus the press point. The drag hit-tests
+    /// `pointer + handle_grab`, so the caret follows the edge, not the finger.
+    handle_grab: egui::Vec2,
     /// The frame drawn around the equation being edited, on screen (its options strip opens the
     /// equation's menu).
     pub eq_options: Option<EquationFrame>,
@@ -278,6 +296,13 @@ impl Default for CanvasState {
             context_menu_open: false,
             context_menu_from_keys: false,
             context_menu_at: None,
+            long_press_at: None,
+            sel_handles: None,
+            sel_edges: None,
+            sel_bounds: None,
+            context_menu_size: egui::vec2(260.0, 360.0),
+            handle_drag: None,
+            handle_grab: egui::Vec2::ZERO,
             eq_options: None,
             mini_anchor: None,
             mini_dismissed: None,
@@ -723,10 +748,13 @@ pub fn geometry(app: &WordApp, l: &DocLayout, avail: egui::Vec2) -> Geometry {
     let sizes: Vec<(f32, f32)> = l.pages.iter().map(|p| (p.w, p.h)).collect();
     if v.mode == wordcraft_layout::ViewMode::Web {
         // The sheet runs from side to side of the work area, no centred page with grey margins.
+        // On a phone the paper starts 6 pt left of the screen: the layout's 18 pt margin then puts
+        // the text 12 pt (about 16 dp) from the edge, and the paper is 12 pt wider than the screen.
+        let inset = if app.phone { -6.0 * scale } else { 0.0 };
         let rects: Vec<Rect> = sizes
             .iter()
             .scan(0.0f32, |y, &(w, h)| {
-                let r = Rect::from_min_size(pos2(0.0, *y), vec2(sane_dim(w, 1e5) * scale, sane_dim(h, 1e6) * scale));
+                let r = Rect::from_min_size(pos2(inset, *y), vec2(sane_dim(w, 1e5) * scale, sane_dim(h, 1e6) * scale));
                 *y = r.bottom();
                 Some(r)
             })
@@ -968,7 +996,13 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             // Web Layout wraps to the work area (#1876): at once on entry or a zoom (the viewport
             // holds still), after a window drag has settled, and only on a real change.
             let scale = app.session.view.zoom.clamp(0.1, 5.0) * PX_PER_PT;
-            let w = web_layout_width(full.width() - SCROLLBAR, scale);
+            // On a phone the paper runs edge to edge and the layout's 18 pt side margins are
+            // shifted (see `Geometry`), so the text keeps about 12 pt from each screen edge.
+            let w = if app.phone {
+                web_layout_width(full.width() + 12.0 * scale, scale)
+            } else {
+                web_layout_width(full.width() - SCROLLBAR, scale)
+            };
             let changed = (app.session.view.web_width - w).abs() > 0.5;
             let entering = app.canvas.web_viewport.entering();
             if app.canvas.web_viewport.apply(full.size(), now, changed, false) {
@@ -1007,10 +1041,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // View › Switch Modes: dark paper, inverted document colours.
     let dark_page = app.session.view.dark_mode;
     let dark_paper = wordcraft_render::DARK_PAPER;
+    // The phone layout (`phone.rs`) leaves the rulers out: a 390 pt screen has no room for them.
     let show_ruler = app.session.view.ruler
         && app.session.view.mode == wordcraft_layout::ViewMode::Print
         && !app.session.view.read_mode
-        && crate::chrome::Screen::of(&app.session.view) == crate::chrome::Screen::Normal;
+        && crate::chrome::Screen::of(&app.session.view) == crate::chrome::Screen::Normal
+        && !crate::phone::active(ui.ctx());
     let (hruler, vruler, area) = if show_ruler {
         let h = Rect::from_min_max(pos2(full.min.x + RULER, full.min.y), pos2(full.max.x, full.min.y + RULER));
         let v = Rect::from_min_max(pos2(full.min.x, full.min.y + RULER), pos2(full.min.x + RULER, full.max.y));
@@ -1121,7 +1157,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             pos2(pr.min.x + c.x * geo.scale, pr.min.y + c.top * geo.scale),
             vec2((c.width * geo.scale).max(2.0), c.height * geo.scale),
         );
-        scroll_target = Some(r.expand2(vec2(40.0, 60.0)));
+        // On the phone the floating bar sits over the bottom of the view: keep the caret line above it.
+        let below = if crate::phone::active(ui.ctx()) { crate::phone::bar_clearance(ui.ctx()) } else { 60.0 };
+        scroll_target = Some(Rect::from_min_max(r.min - vec2(40.0, 60.0), r.max + vec2(40.0, below)));
     }
     app.canvas.scroll_to_caret = false;
     let mut origin = area.min;
@@ -1185,7 +1223,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         app.canvas.auto_scroll.update(ui, area)
     };
     let delta = wheel_delta + auto_delta + middle_delta;
-    let mut scroll_area = egui::ScrollArea::both()
+    // Phone Web Layout wraps the text to the screen, so it never needs to scroll sideways. A few
+    // points of spare width would let a drag (a selection handle, say) pan the page sideways.
+    let sideways = !(app.phone && app.session.view.mode == wordcraft_layout::ViewMode::Web);
+    let mut scroll_area = if sideways { egui::ScrollArea::both() } else { egui::ScrollArea::vertical() }
         .id_salt("canvas_scroll")
         .auto_shrink([false, false])
         // Bringing the caret into view glides there, or jumps with animation effects off.
@@ -1223,7 +1264,34 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         // and Escape did nothing in Read Mode until the reader clicked a page (#1772).
         // It also keeps the focus when Focus hides the rulers (#1678).
         ui.advance_cursor_after_rect(content);
-        let resp = ui.interact(content, egui::Id::new("wordcraft_canvas"), Sense::click_and_drag());
+        // Phone: a one-finger drag scrolls the page, so the canvas only takes drags after a long
+        // press (held still for 0.4 s), which starts a selection. A click-only canvas leaves the
+        // drag to the scroll area. Desktop keeps click-and-drag.
+        let touch_select_id = egui::Id::new("wordcraft_touch_select");
+        let stored_select = ui.data(|d| d.get_temp::<bool>(touch_select_id)).unwrap_or(false);
+        // A press on a selection handle drags it at once: the scroll gesture never gets it.
+        let on_handle = app.phone && ui.input(|i| i.pointer.primary_pressed()) && handle_at(app, ui.input(|i| i.pointer.latest_pos())).is_some();
+        let touch_select = !app.phone || stored_select || on_handle;
+        let sense = if touch_select { Sense::click_and_drag() } else { Sense::click() };
+        let resp = ui.interact(content, egui::Id::new("wordcraft_canvas"), sense);
+        if app.phone {
+            let (down, since, origin, pos, now) = ui.input(|i| {
+                (i.pointer.primary_down(), i.pointer.press_start_time(), i.pointer.press_origin(), i.pointer.latest_pos(), i.time)
+            });
+            let held_still = matches!((origin, pos), (Some(o), Some(p)) if (p - o).length() < 10.0)
+                && since.is_some_and(|t| now - t >= 0.4);
+            let next = down && (touch_select || held_still);
+            if next != stored_select {
+                ui.data_mut(|d| d.insert_temp(touch_select_id, next));
+            }
+            // The long press that starts a selection also selects the word under it (Word's behaviour).
+            if next && !touch_select && let Some(o) = origin {
+                ui.data_mut(|d| d.insert_temp(egui::Id::new("wordcraft_long_press"), o));
+            }
+            if down && !next {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+            }
+        }
         if let Some(tr) = scroll_target {
             ui.scroll_to_rect(Rect::from_min_size(ui.min_rect().min + tr.min.to_vec2(), tr.size()), None);
         }
@@ -1302,8 +1370,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             } else {
                 painter.with_clip_rect(painter.clip_rect().intersect(band))
             };
-            // Shadow and paper.
-            painter.rect_filled(visual_sr.translate(vec2(0.0, 2.0)).expand(1.5), 1.0, t.page_shadow);
+            // Shadow and paper. The phone's Web Layout is one endless sheet with no page edge.
+            if !(app.phone && app.session.view.mode == wordcraft_layout::ViewMode::Web) {
+                painter.rect_filled(visual_sr.translate(vec2(0.0, 2.0)).expand(1.5), 1.0, t.page_shadow);
+            }
             painter.rect_filled(visual_sr, 0.0, if dark_page { Color32::from_gray(dark_paper) } else { Color32::WHITE });
             if tiled {
                 // Render before painting to keep the frame sharp immediately after an edit or
@@ -1493,7 +1563,22 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         // Anchor only to visible selection geometry. A selection can span pages, and its
         // document-first line may be scrolled offscreen; using it would pin the toolbar to an
         // old screen position unrelated to the visible selection.
-        app.canvas.mini_anchor = crate::mini_toolbar::visible_anchor(screen_rects, visible_clip);
+        app.canvas.mini_anchor = crate::mini_toolbar::visible_anchor(screen_rects.clone(), visible_clip);
+        // Phone: a handle under the start and the end of a text selection (a drag moves that end).
+        let grips = match (app.phone, screen_rects.first(), screen_rects.last()) {
+            (true, Some(first), Some(last)) if !app.session.sel.is_collapsed() => {
+                let handles = [pos2(first.min.x, first.max.y + HANDLE_R), pos2(last.max.x, last.max.y + HANDLE_R)];
+                let edges = [pos2(first.min.x, first.center().y), pos2(last.max.x, last.center().y)];
+                for h in handles {
+                    painter.circle_filled(h, HANDLE_R, t.accent);
+                }
+                Some((handles, edges))
+            }
+            _ => None,
+        };
+        app.canvas.sel_handles = grips.map(|g| g.0);
+        app.canvas.sel_edges = grips.map(|g| g.1);
+        app.canvas.sel_bounds = grips.and_then(|_| screen_rects.iter().copied().reduce(|a, b| a.union(b)));
         // Content controls: the frame of the one the caret is in (all of them in Design Mode).
         crate::content_controls::paint(app, &painter, &t, &layout, &rects, geo.scale);
         // Read Aloud: the sentence being spoken.
@@ -1688,6 +1773,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // the scroll area is built, so it reads last frame's viewport.
     app.canvas.viewport = Some(out.inner_rect);
     let (resp, rects) = out.inner;
+    // Phone long press: select the word under the press point (flagged in the touch block).
+    if let Some(origin) = ui.data_mut(|d| d.remove_temp::<Pos2>(egui::Id::new("wordcraft_long_press"))) {
+        long_press_word(app, &rects, &layout, geo.scale, origin);
+    }
     // A click on the page leaves the selected comment balloon.
     if app.canvas.balloon.is_some()
         && ui.input(|i| i.pointer.any_pressed())
@@ -1791,6 +1880,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     }
     // Shift+F10 opens the same menu below the caret, for the selection or the word there (#821).
     let from_keys = std::mem::take(&mut app.canvas.context_menu_from_keys);
+    // A phone long press that selected a word opens the menu on its release, at the press point.
+    // The popup's own click toggle is off (`open_bool` below), so this is what opens it.
+    let long_at = if ui.input(|i| i.pointer.primary_released()) { app.canvas.long_press_at.take() } else { None };
+    if let Some(at) = long_at {
+        app.canvas.context_menu_at = Some(at);
+    }
     // A click on the equation frame's options strip opens the equation's menu below the strip.
     let eq_strip = app.canvas.eq_options.map(|f| f.strip).filter(|r| resp.clicked() && resp.interact_pointer_pos().is_some_and(|p| r.contains(p)));
     if from_keys {
@@ -1804,7 +1899,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // Keep the parent independently of egui's one memory popup: the toolbar's font, size and
     // colour controls use that slot for their own lists (as in a collapsed ribbon group).
     let mut open = app.canvas.context_menu_open;
-    if secondary_clicked || from_keys || eq_strip.is_some() {
+    if secondary_clicked || from_keys || eq_strip.is_some() || long_at.is_some() {
+        // A menu opened afresh starts at its top list, not in More.
+        crate::phone::reset_context_more(ui.ctx());
         egui::Popup::close_all(ui.ctx());
         open = true;
     } else if open && ui.input(|i| i.pointer.any_click()) {
@@ -1819,10 +1916,15 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         app.escape_free = false;
     }
     let menu = egui::Popup::menu(&resp).open_bool(&mut shown);
-    let menu = menu.at_position(app.canvas.context_menu_at.unwrap_or(out.inner_rect.left_top()));
+    // On the phone the menu sits clear of the selection and its handles (`phone_menu_pos`).
+    let at = match app.canvas.sel_bounds.filter(|_| app.phone) {
+        Some(sel) => phone_menu_pos(sel, app.canvas.context_menu_size, ui.ctx().content_rect()),
+        None => app.canvas.context_menu_at.unwrap_or(out.inner_rect.left_top()),
+    };
+    let menu = menu.at_position(at);
     let with_toolbar = crate::mini_toolbar::context_menu_visible(app);
     let menu = if with_toolbar { menu.frame(egui::Frame::NONE).close_behavior(egui::PopupCloseBehavior::IgnoreClicks) } else { menu };
-    menu.show(|ui| {
+    let menu_shown = menu.show(|ui| {
         if with_toolbar {
             crate::mini_toolbar::show_in_context_menu(app, ui);
             ui.add_space(4.0);
@@ -1842,6 +1944,9 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             context_menu(app, ui);
         }
     });
+    if let Some(r) = menu_shown {
+        app.canvas.context_menu_size = r.response.rect.size();
+    }
     // Escape closes the child list first; a second Escape closes the context menu.
     if open && !shown && child_open && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         shown = true;
@@ -2471,9 +2576,92 @@ fn clamped_scroll(before: egui::Vec2, delta: egui::Vec2, max: egui::Vec2) -> egu
     (before - delta).clamp(egui::Vec2::ZERO, max)
 }
 
+/// Radius of a phone selection handle's circle, and how far from its centre a press still grabs it (dp).
+const HANDLE_R: f32 = 7.0;
+const HANDLE_HIT: f32 = 24.0;
+
+/// Phone selection menu: its top-left corner. Fully above the selection when it fits there, else
+/// fully below the selection and its handles (a handle hangs `2 * HANDLE_R` under the last line),
+/// then clamped to the screen. If the screen is too short for either, the clamp may cover a
+/// little of the selection; that is the only case.
+fn phone_menu_pos(sel: Rect, menu: egui::Vec2, screen: Rect) -> Pos2 {
+    const GAP: f32 = 4.0;
+    let x = sel.left().clamp(screen.left(), (screen.right() - menu.x).max(screen.left()));
+    let above = sel.top() - GAP - menu.y;
+    let y = if above >= screen.top() { above } else { sel.bottom() + 2.0 * HANDLE_R + GAP };
+    pos2(x, y.clamp(screen.top(), (screen.bottom() - menu.y).max(screen.top())))
+}
+
+/// The selection handle (0 start, 1 end) a phone press at `p` lands on, the nearest within reach.
+fn handle_at(app: &WordApp, p: Option<Pos2>) -> Option<usize> {
+    let p = p?;
+    let handles = app.canvas.sel_handles?;
+    let (i, d) = handles.iter().map(|h| h.distance(p)).enumerate().fold((0, f32::MAX), |best, (i, d)| if d < best.1 { (i, d) } else { best });
+    (d <= HANDLE_HIT).then_some(i)
+}
+
+/// A phone selection handle press starts a drag of that end; while it runs, the pointer moves
+/// the other end, which stays anchored. True while a handle owns the pointer.
+fn handle_pointer(app: &mut WordApp, ui: &Ui, rects: &[Rect], layout: &DocLayout, scale: f32) -> bool {
+    let (pressed, down, pos) = ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.latest_pos()));
+    if pressed && let Some(i) = handle_at(app, pos) {
+        // Dragging the start keeps the end; dragging the end keeps the start.
+        let (start, end) = app.session.sel.ordered();
+        app.canvas.handle_drag = Some(if i == 0 { end } else { start });
+        // The caret follows the edge's line, wherever on the handle the finger landed.
+        app.canvas.handle_grab = match (app.canvas.sel_edges.and_then(|e| e.get(i).copied()), pos) {
+            (Some(edge), Some(p)) => edge - p,
+            _ => egui::Vec2::ZERO,
+        };
+        app.canvas.unit_drag = None;
+        app.canvas.dragging = false;
+        return true;
+    }
+    // A press that is not on a handle is an ordinary press: a drag left over from a missed release ends.
+    if pressed {
+        app.canvas.handle_drag = None;
+        return false;
+    }
+    let Some(fixed) = app.canvas.handle_drag.clone() else { return false };
+    if !down {
+        app.canvas.handle_drag = None;
+        return true;
+    }
+    if let Some(p) = pos.map(|p| p + app.canvas.handle_grab)
+        && let Some((page, x, y)) = page_at(rects, layout, scale, p)
+        && let Some(focus) = layout.hit(page, x, y, app.session.sel.focus.story)
+        && focus != app.session.sel.focus
+    {
+        app.session.sel = wordcraft_engine::Selection { anchor: fixed, focus };
+        app.session.page_hint = page;
+        app.canvas.caret_visible_since = crate::now_ms();
+    }
+    true
+}
+
+/// Phone long press: put the caret under the press point and select its word, as Word does.
+/// Presses off the page do nothing.
+fn long_press_word(app: &mut WordApp, rects: &[Rect], layout: &DocLayout, scale: f32, p: Pos2) {
+    let Some((page, x, y)) = page_at(rects, layout, scale, p) else { return };
+    let story = app.session.sel.focus.story;
+    if let Some(pos) = layout.hit(page, x, y, story) {
+        app.session.sel = wordcraft_engine::Selection::caret(pos.clone());
+        let _ = app.run("select.word", json!({}));
+        // The finger is still down, so the drag handler runs next. Leave it in word units (as a
+        // double-click does) so it grows by whole words; a character drag to the raw pointer
+        // would cut the word back to a partial one.
+        let (start, end) = app.session.sel.ordered();
+        app.canvas.unit_drag = Some(UnitDrag { unit: "word", clicks: 2, start, end, last: pos });
+        app.canvas.long_press_at = Some(p);
+    }
+}
+
 fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layout: &DocLayout, scale: f32) {
     // A pen or the eraser (Draw tab) owns the pointer.
     if crate::ink::pointer(app, ui, resp, rects, layout, scale) {
+        return;
+    }
+    if app.phone && handle_pointer(app, ui, rects, layout, scale) {
         return;
     }
     let pointer = resp.interact_pointer_pos().or_else(|| resp.hover_pos());
@@ -3326,6 +3514,9 @@ fn equation_menu(app: &mut WordApp, ui: &mut Ui) {
 fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     if app.session.math.is_some() {
         return equation_menu(app, ui);
+    }
+    if crate::phone::active(ui.ctx()) {
+        return crate::phone::context_menu(app, ui);
     }
     ui.set_min_width(220.0);
     let item = |ui: &mut Ui, app: &mut WordApp, label: &str, id: &str, params: serde_json::Value| {
@@ -6972,5 +7163,41 @@ mod tests {
         let hidden = view_key(&app, false, Some(&object));
         assert_ne!(hidden, view_key(&app, false, None), "the page without the dragged object is rendered again");
         assert_eq!(hidden, view_key(&app, false, Some(&object)), "the same drag keeps the key: no re-render every frame");
+    }
+}
+
+#[cfg(test)]
+mod phone_menu_placement_tests {
+    use super::*;
+
+    /// The menu never covers the selection or either handle, for a selection mid-screen, a
+    /// selection near the top (menu goes below) and one near the bottom (menu goes above).
+    #[test]
+    fn phone_menu_clears_the_selection_and_its_handles() {
+        let screen = Rect::from_min_size(Pos2::ZERO, egui::vec2(400.0, 800.0));
+        let menu = egui::vec2(260.0, 300.0);
+        for top in [40.0_f32, 380.0, 700.0] {
+            let sel = Rect::from_min_max(pos2(60.0, top), pos2(300.0, top + 40.0));
+            let handles = [pos2(sel.min.x, sel.max.y + HANDLE_R), pos2(sel.max.x, sel.max.y + HANDLE_R)];
+            let at = phone_menu_pos(sel, menu, screen);
+            let rect = Rect::from_min_size(at, menu);
+            assert!(screen.contains_rect(rect), "on screen for top {top}: {rect:?}");
+            assert!(!rect.intersects(sel), "menu covers the selection for top {top}: {rect:?}");
+            for h in handles {
+                let hr = Rect::from_center_size(h, egui::vec2(2.0 * HANDLE_R, 2.0 * HANDLE_R));
+                assert!(!rect.intersects(hr), "menu covers a handle for top {top}: {rect:?}");
+            }
+        }
+    }
+
+    /// With room above, the menu goes above the selection; with none, below it.
+    #[test]
+    fn phone_menu_prefers_above_then_below() {
+        let screen = Rect::from_min_size(Pos2::ZERO, egui::vec2(400.0, 800.0));
+        let menu = egui::vec2(260.0, 300.0);
+        let mid = Rect::from_min_max(pos2(60.0, 400.0), pos2(300.0, 440.0));
+        assert!(phone_menu_pos(mid, menu, screen).y + menu.y <= mid.top(), "above when there is room");
+        let top = Rect::from_min_max(pos2(60.0, 20.0), pos2(300.0, 60.0));
+        assert!(phone_menu_pos(top, menu, screen).y >= top.bottom() + 2.0 * HANDLE_R, "below when there is no room above");
     }
 }

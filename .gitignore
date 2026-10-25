@@ -8,3 +8,12 @@ plan/
 /.claude/
 /target-*/
 /craft-fonts/
+# Custom Android fork: build output, local files, and nothing observed from Microsoft Word
+/packaging/android-native/.gradle/
+/packaging/android-native/app/build/
+/packaging/android-native/app/src/main/jniLibs/
+/packaging/android-native/local.properties
+.claude-mpm/
+/b6.png
+/notes/shots/
+/notes/word-*.md

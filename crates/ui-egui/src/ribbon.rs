@@ -3463,7 +3463,9 @@ mod tests {
     fn tab_strip_never_overlaps_the_right_buttons() {
         use egui_kittest::kittest::Queryable;
         for lang in ["en", "pl", "de"] {
-            for width in [300.0, 420.0, 520.0, 640.0, 765.0, 1280.0] {
+            // Windows under the phone breakpoint (`phone::MAX_WIDTH`) draw the phone layout, which
+            // has no ribbon, so the desktop widths are the ones this checks.
+            for width in [640.0, 765.0, 1280.0] {
                 let mut app = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Text")), crate::Services::default());
                 app.run("insert.table", json!({"rows": 3, "cols": 3})).unwrap();
                 app.run("ui.language", json!({"value": lang})).unwrap();

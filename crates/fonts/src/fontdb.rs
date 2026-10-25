@@ -776,6 +776,8 @@ pub fn system_font_dirs() -> Vec<std::path::PathBuf> {
                 }
             }
         }
+    } else if cfg!(target_os = "android") {
+        dirs = android_font_dirs(std::path::Path::new("/"));
     } else if cfg!(windows) {
         let root = std::env::var_os("WINDIR").map(std::path::PathBuf::from).unwrap_or_else(|| "C:\\Windows".into());
         dirs.push(root.join("Fonts"));
@@ -794,6 +796,12 @@ pub fn system_font_dirs() -> Vec<std::path::PathBuf> {
         dirs.extend(["/run/host/fonts", "/run/host/local-fonts", "/run/host/user-fonts", "/run/host/user-fonts-legacy"].map(Into::into));
     }
     dirs
+}
+
+/// Android's font folders under `root` (`/` on a device): the system image's, then the product,
+/// system_ext and vendor partitions'. Missing folders are skipped by the scan.
+pub fn android_font_dirs(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    ["system/fonts", "product/fonts", "system_ext/fonts", "vendor/fonts"].iter().map(|d| root.join(d)).collect()
 }
 
 /// One face found in a font file.

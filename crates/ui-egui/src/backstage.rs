@@ -29,7 +29,166 @@ fn back_chevron_c(band_min_x: f32, center_y: f32, fullscreen: bool, content_left
     pos2(band_min_x + x, center_y)
 }
 
+/// What a page button does: most open their page; Save, Save As and Close act on the document.
+/// Shared by the desktop sidebar and the phone drawer.
+fn activate(app: &mut WordApp, id: &str) {
+    match id {
+        // A document without a file goes to the Save As page (as in Word) instead
+        // of `file.save`, which would also open the native Save As dialog.
+        // In the browser a save is a download, so it saves right away.
+        "save" if app.session.path.is_none() && app.services.download.is_none() => {
+            app.ui.backstage_page = "saveAs".into();
+        }
+        "save" => {
+            let r = app.run("file.save", json!({}));
+            if r.is_ok_and(|v| v.get("saved").and_then(serde_json::Value::as_bool) == Some(true) || v.get("downloaded").is_some()) {
+                app.ui.backstage = false;
+                app.canvas.want_focus = true;
+            } else {
+                app.ui.backstage_page = "saveAs".into();
+            }
+        }
+        "saveAs" => {
+            app.ui.backstage_page = "saveAs".into();
+        }
+        // Not a page: `file.close` asks Save / Don't Save / Cancel first when there
+        // are unsaved changes, and Cancel leaves the Backstage where it was.
+        "close" => {
+            let _ = app.run("file.close", json!({}));
+        }
+        _ => app.ui.backstage_page = id.into(),
+    }
+}
+
+/// Whether the phone's navigation drawer is open. Kept in egui's memory, as the phone bars keep theirs.
+fn drawer_id() -> egui::Id {
+    egui::Id::new("phone_backstage_drawer")
+}
+
+fn drawer_open(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(drawer_id())).unwrap_or(false)
+}
+
+fn set_drawer(ctx: &egui::Context, open: bool) {
+    ctx.data_mut(|d| d.insert_temp(drawer_id(), open));
+}
+
+/// The Backstage on a phone: a top app bar (menu, the page's name, back), the pages in a
+/// navigation drawer the menu button opens, and the page below. The desktop sidebar is too wide
+/// for a phone, so it is not drawn.
+fn phone_show(app: &mut WordApp, ui: &mut Ui) {
+    let m = crate::phone::md(ui.ctx());
+    let has_document = app.has_document();
+    if !has_document && !works_without_document(&app.ui.backstage_page) {
+        app.ui.backstage_page = "home".into();
+    }
+    let drawer = drawer_open(ui.ctx());
+    let title = PAGES.iter().find(|(id, ..)| *id == app.ui.backstage_page).map_or("Home", |(_, label, _)| *label);
+    egui::Panel::top("backstage_app_bar").exact_size(56.0).frame(egui::Frame::NONE.fill(m.surface).inner_margin(egui::Margin::symmetric(8, 0))).show(
+        ui,
+        |ui| {
+            ui.horizontal_centered(|ui| {
+                if icon_only(ui, "menu", "Menu").clicked() {
+                    set_drawer(ui.ctx(), !drawer);
+                }
+                ui.add_space(4.0);
+                ui.add(egui::Label::new(egui::RichText::new(tl!(title)).font(medium(18.0))).truncate());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if icon_only(ui, "chevronLeft", "Back").clicked() {
+                        app.ui.backstage = false;
+                        app.canvas.want_focus = true;
+                    }
+                });
+            });
+        },
+    );
+    if drawer {
+        // A modal drawer floats over the page, as Material's does, so the page keeps its width.
+        let height = ui.ctx().content_rect().height() - 56.0;
+        let shadow = egui::Shadow { offset: [0, 6], blur: 18, spread: 0, color: egui::Color32::from_black_alpha(80) };
+        egui::Area::new(egui::Id::new("backstage_drawer")).anchor(Align2::LEFT_TOP, vec2(0.0, 56.0)).order(egui::Order::Foreground).show(
+            ui.ctx(),
+            |ui| {
+                egui::Frame::NONE.fill(m.surface_low).shadow(shadow).inner_margin(egui::Margin::symmetric(0, 16)).show(ui, |ui| {
+                    ui.set_width(296.0);
+                    ui.set_min_height(height - 32.0);
+                    for (id, label, icon) in PAGES {
+                        // No document open (#1129): the pages that need one are greyed out.
+                        let on = has_document || works_without_document(id);
+                        let active = app.ui.backstage_page == id;
+                        let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tl!(label)));
+                        // The active page is a tinted pill, as Material's drawer marks its current item.
+                        let fill = if active {
+                            m.primary_container
+                        } else if on && resp.hovered() {
+                            m.surface_high
+                        } else {
+                            egui::Color32::TRANSPARENT
+                        };
+                        let row = r.shrink2(vec2(12.0, 0.0));
+                        ui.painter().rect_filled(row, egui::CornerRadius::same(24), fill);
+                        let ink = if on { m.on_surface } else { m.on_surface_variant };
+                        icons::paint(
+                            ui.painter(),
+                            Rect::from_center_size(pos2(row.min.x + 24.0, row.center().y), vec2(20.0, 20.0)),
+                            icon,
+                            ink,
+                            m.primary,
+                        );
+                        let font = if active { semibold(15.0) } else { medium(15.0) };
+                        ui.painter().text(pos2(row.min.x + 56.0, row.center().y), Align2::LEFT_CENTER, tl!(label), font, ink);
+                        if resp.clicked() && on {
+                            set_drawer(ui.ctx(), false);
+                            activate(app, id);
+                        }
+                    }
+                });
+            },
+        );
+    }
+    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(m.surface).inner_margin(egui::Margin::symmetric(16, 12))).show(ui, |ui| {
+        if app.ui.backstage_page == "print" {
+            export_page(app, ui);
+            return;
+        }
+        egui::ScrollArea::vertical().show(ui, |ui| match app.ui.backstage_page.as_str() {
+            "home" => home_page(app, ui),
+            "new" => new_page(app, ui),
+            "open" => open_page(app, ui),
+            "saveAs" => save_as_page(app, ui),
+            "info" => info_page(app, ui),
+            "recover" => recovery_page(app, ui),
+            "print" | "export" => export_page(app, ui),
+            "options" => crate::options::page(app, ui),
+            _ => home_page(app, ui),
+        });
+    });
+}
+
+/// A 44 pt touch target showing a drawn icon, with its name as the tooltip.
+fn icon_only(ui: &mut Ui, icon: &str, tip: &str) -> egui::Response {
+    let t = Tokens::get(ui.ctx());
+    let (r, resp) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::click());
+    if resp.hovered() || resp.is_pointer_button_down_on() {
+        ui.painter().rect_filled(r, egui::CornerRadius::same(22), t.hover);
+    }
+    if icon == "menu" {
+        // Three bars: the navigation drawer's button, drawn because the icon set has no menu glyph.
+        let stroke = egui::Stroke::new(2.0, t.icon);
+        for dy in [-6.0, 0.0, 6.0] {
+            ui.painter().hline(r.x_range().shrink(11.0), r.center().y + dy, stroke);
+        }
+    } else {
+        icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(22.0, 22.0)), icon, t.icon, t.accent);
+    }
+    resp.on_hover_text(tl!(tip))
+}
+
 pub fn show(app: &mut WordApp, ui: &mut Ui) {
+    if crate::phone::active(ui.ctx()) {
+        return phone_show(app, ui);
+    }
     let t = Tokens::get(ui.ctx());
     // No document open (#1129): only the pages that open or create one, and Options.
     let has_document = app.has_document();
@@ -93,32 +252,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     ink,
                 );
                 if resp.clicked() {
-                    match id {
-                        // A document without a file goes to the Save As page (as in Word) instead
-                        // of `file.save`, which would also open the native Save As dialog.
-                        // In the browser a save is a download, so it saves right away.
-                        "save" if app.session.path.is_none() && app.services.download.is_none() => {
-                            app.ui.backstage_page = "saveAs".into();
-                        }
-                        "save" => {
-                            let r = app.run("file.save", json!({}));
-                            if r.is_ok_and(|v| v.get("saved").and_then(serde_json::Value::as_bool) == Some(true) || v.get("downloaded").is_some()) {
-                                app.ui.backstage = false;
-                                app.canvas.want_focus = true;
-                            } else {
-                                app.ui.backstage_page = "saveAs".into();
-                            }
-                        }
-                        "saveAs" => {
-                            app.ui.backstage_page = "saveAs".into();
-                        }
-                        // Not a page: `file.close` asks Save / Don't Save / Cancel first when there
-                        // are unsaved changes, and Cancel leaves the Backstage where it was.
-                        "close" => {
-                            let _ = app.run("file.close", json!({}));
-                        }
-                        _ => app.ui.backstage_page = id.into(),
-                    }
+                    activate(app, id);
                 }
             }
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
@@ -178,28 +312,42 @@ fn recovery_page(app: &mut WordApp, ui: &mut Ui) {
         ui.label(tl!("No recovery copies."));
     }
     let busy = app.session.recovery_busy();
-    egui::Grid::new("recovery_documents").min_col_width(180.0).spacing(vec2(24.0, 16.0)).show(ui, |ui| {
-        if !documents.is_empty() {
-            ui.strong(tl!("Document"));
-            ui.strong(tl!("Recovery copy"));
-            ui.end_row();
-        }
-        for doc in documents {
-            ui.label(&doc.name);
-            ui.label(&doc.saved_at);
-            ui.add_enabled_ui(!busy, |ui| {
-                ui.horizontal(|ui| {
-                    if ui.button(tl!("Restore")).clicked() {
-                        let _ = app.run("file.recover", json!({"restore": doc.id}));
-                    }
-                    if ui.button(tl!("Discard…")).clicked() {
-                        let _ = app.run("ui.recoveryDiscard", json!({"id": doc.id}));
-                    }
-                });
+    let actions = |app: &mut WordApp, ui: &mut Ui, id: &str| {
+        ui.add_enabled_ui(!busy, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button(tl!("Restore")).clicked() {
+                    let _ = app.run("file.recover", json!({"restore": id}));
+                }
+                if ui.button(tl!("Discard…")).clicked() {
+                    let _ = app.run("ui.recoveryDiscard", json!({"id": id}));
+                }
             });
-            ui.end_row();
+        });
+    };
+    if crate::phone::active(ui.ctx()) {
+        // Three columns do not fit a phone and cannot scroll sideways, so the buttons went off-screen.
+        // On a phone each copy is a block with its buttons under it.
+        for doc in &documents {
+            ui.strong(&doc.name);
+            ui.label(&doc.saved_at);
+            actions(app, ui, &doc.id);
+            ui.add_space(16.0);
         }
-    });
+    } else {
+        egui::Grid::new("recovery_documents").min_col_width(180.0).spacing(vec2(24.0, 16.0)).show(ui, |ui| {
+            if !documents.is_empty() {
+                ui.strong(tl!("Document"));
+                ui.strong(tl!("Recovery copy"));
+                ui.end_row();
+            }
+            for doc in &documents {
+                ui.label(&doc.name);
+                ui.label(&doc.saved_at);
+                actions(app, ui, &doc.id);
+                ui.end_row();
+            }
+        });
+    }
     ui.add_space(20.0);
     ui.horizontal(|ui| {
         if ui.button(tl!("Continue without restoring")).clicked() {
@@ -305,11 +453,14 @@ fn home_page(app: &mut WordApp, ui: &mut Ui) {
             "Good evening"
         },
     );
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing = vec2(18.0, 0.0);
-        for (label, template) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
-            template_tile(ui, app, label, template);
-        }
+    // A row of tiles that scrolls sideways when the window is narrow, as on a phone.
+    egui::ScrollArea::horizontal().id_salt("home_templates").show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = vec2(18.0, 0.0);
+            for (label, template) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
+                template_tile(ui, app, label, template);
+            }
+        });
     });
     ui.add_space(8.0);
     let more = ui.add(egui::Label::new(egui::RichText::new(tl!("More templates →")).font(medium(13.5)).color(t.accent)).sense(Sense::click()));
@@ -565,6 +716,12 @@ pub(crate) fn forget_save_as_error(ctx: &egui::Context) {
 /// Open a file from the Recent list. A file that can't be opened (deleted, moved, unreadable)
 /// leaves File open so the list can say why, rather than closing it on a greyed-out window.
 fn open_recent(app: &mut WordApp, path: &str) -> Result<(), String> {
+    if app.services.open_location.as_ref().is_some_and(|open| open(path)) {
+        // The host reads the document and opens it when the bytes arrive (drain_inbox).
+        app.ui.backstage = false;
+        app.canvas.want_focus = true;
+        return Ok(());
+    }
     app.run("file.open", json!({"path": path}))?;
     app.ui.backstage = false;
     app.canvas.want_focus = true;
@@ -780,6 +937,20 @@ mod tests {
         assert!(app.ui.backstage, "File stays open");
     }
 
+    /// A host location goes to the host, which delivers the document later; any other path still
+    /// goes to the file system.
+    #[test]
+    fn a_host_location_is_handed_to_the_host() {
+        let services = Services { open_location: Some(Box::new(|p: &str| p.starts_with("content://"))), ..Default::default() };
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), services);
+        app.ui.backstage = true;
+        assert_eq!(super::open_recent(&mut app, "content://auth/doc/primary%3ADownload%2Fquokka.docx/quokka.docx"), Ok(()));
+        assert!(!app.ui.backstage, "the host opens the document");
+        app.ui.backstage = true;
+        assert!(super::open_recent(&mut app, "/nonexistent/quokka.docx").is_err());
+        assert!(app.ui.backstage, "a file that can't be opened keeps File open");
+    }
+
     /// #1873: the macOS back chevron sits beside the traffic lights windowed, at the plain
     /// control inset in full screen.
     #[test]
@@ -989,6 +1160,28 @@ mod tests {
         assert!(h.state().ui.backstage && h.state().ui.backstage_page == "recover");
         drop(h);
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// On a phone the Restore button must be on screen (the three-column grid pushed it off).
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn recovery_restore_is_on_screen_on_a_phone() {
+        let (app, root) = recovery_app();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(400.0, 800.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            app,
+        );
+        settle_recovery(&mut h);
+        assert!(h.state().ui.backstage && h.state().ui.backstage_page == "recover");
+        h.run_steps(4);
+        let restore = h.get_by_label("Restore").rect();
+        assert!(restore.max.x <= 400.0, "Restore is within the 400 pt phone width: {restore:?}");
+        drop(h);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -1457,7 +1650,7 @@ mod tests {
         let got: std::rc::Rc<std::cell::RefCell<Vec<(String, Vec<u8>)>>> = Default::default();
         let sink = got.clone();
         let services = Services {
-            download: Some(Box::new(move |n: &str, b: &[u8]| {
+            download: Some(Box::new(move |n: &str, b: &[u8], _: bool| {
                 sink.borrow_mut().push((n.to_string(), b.to_vec()));
                 Ok(())
             })),
@@ -1678,7 +1871,7 @@ mod tests {
         let got: std::rc::Rc<std::cell::RefCell<Vec<(String, Vec<u8>)>>> = Default::default();
         let sink = got.clone();
         let services = Services {
-            download: Some(Box::new(move |n: &str, b: &[u8]| {
+            download: Some(Box::new(move |n: &str, b: &[u8], _: bool| {
                 sink.borrow_mut().push((n.to_string(), b.to_vec()));
                 Ok(())
             })),
