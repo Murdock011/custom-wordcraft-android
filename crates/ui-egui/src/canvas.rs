@@ -3536,7 +3536,7 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
         return equation_menu(app, ui);
     }
     if crate::phone::active(ui.ctx()) {
-        return if app.compact_selection_menu { crate::phone::compact_context_menu(app, ui) } else { crate::phone::context_menu(app, ui) };
+        return if app.ui.compact_selection_menu { crate::phone::compact_context_menu(app, ui) } else { crate::phone::context_menu(app, ui) };
     }
     ui.set_min_width(220.0);
     let item = |ui: &mut Ui, app: &mut WordApp, label: &str, id: &str, params: serde_json::Value| {

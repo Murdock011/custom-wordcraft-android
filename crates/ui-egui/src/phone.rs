@@ -111,7 +111,11 @@ fn icon_button(ui: &mut Ui, m: Md, icon: &str, tip: &str) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(ICON_BTN, ICON_BTN), Sense::click());
     paint_state(ui, r, (ICON_BTN / 2.0) as u8, m.on_surface, &resp);
     icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(24.0, 24.0)), icon, m.on_surface_variant, m.primary);
-    resp.on_hover_text(crate::tl!(tip))
+    // The name a screen reader or a test finds the button by is its tooltip.
+    let name = crate::tl!(tip).to_string();
+    let enabled = ui.is_enabled();
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name.clone()));
+    resp.on_hover_text(name)
 }
 
 /// A Material text label button of at least `min_w` by 40 pt, in the primary colour.
@@ -731,21 +735,28 @@ fn compact_bar(on: bool, tab: usize) -> &'static [BarButton] {
     }
 }
 
-/// The icon bar at the top of a tab sheet: 48 pt icon buttons, four to a row.
+/// Icon buttons to a row of a compact bar.
+const BAR_COLUMNS: usize = 4;
+
+/// The icon bar at the top of a tab sheet: 48 pt icon buttons, four to a row across the sheet's
+/// full width. Each button sits in the middle of its quarter of the width.
 fn compact_tab_bar(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context, bar: &[BarButton]) {
     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-    for row in bar.chunks(4) {
+    let gap = (ui.available_width() / BAR_COLUMNS as f32 - ICON_BTN) / 2.0;
+    for row in bar.chunks(BAR_COLUMNS) {
         ui.horizontal(|ui| {
             for (icon, label, id) in row {
+                ui.add_space(gap);
                 if icon_button(ui, m, icon, label).clicked() {
                     pick_row(app, ctx, id);
                 }
+                ui.add_space(gap);
             }
         });
     }
 }
 
-/// Phone option (`WordApp::compact_selection_menu`): the selection menu as one row of 48 pt icon
+/// Phone option (`UiState::compact_selection_menu`, on by default): the selection menu as one row of 48 pt icon
 /// buttons (Cut, Copy, Paste, Select All, New Comment, More), each named by its tooltip. More opens
 /// the list's More page, and a misspelt word keeps the list, which carries its suggestions.
 pub fn compact_context_menu(app: &mut WordApp, ui: &mut Ui) {
@@ -1748,6 +1759,44 @@ mod tests {
             }
         }
         assert_eq!(compact_bar(true, TABLE_TAB).len(), 8, "insert, delete, merge and split");
+    }
+
+    /// Update 32: the icon bars span the sheet's full width. Four buttons to a row, evenly spaced,
+    /// with the first and last of each row near the sheet's two edges.
+    #[test]
+    fn icon_bars_fill_the_sheet_width() {
+        use egui_kittest::kittest::Queryable;
+        let layout = TABS.iter().position(|t| *t == "Layout").unwrap_or(0);
+        for tab in [TABLE_TAB, layout] {
+            let app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(412.0, 915.0)).build_ui_state(
+                |ui, app: &mut crate::WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                app,
+            );
+            h.run_steps(3);
+            // The Table tab shows only with the caret in a table.
+            h.state_mut().run("insert.table", json!({"rows": 2, "cols": 2})).unwrap();
+            h.run_steps(3);
+            let ctx = h.ctx.clone();
+            open_menu(h.state_mut(), &ctx, tab);
+            h.run_steps(4);
+            let names: Vec<&str> = compact_bar(true, tab).iter().map(|b| b.1).collect();
+            let center = |h: &egui_kittest::Harness<'_, crate::WordApp>, name: &str| {
+                h.get_by_role_and_label(egui::accesskit::Role::Button, name).rect().center()
+            };
+            let sheet = h.ctx.data(|d| d.get_temp::<egui::Rect>(sheet_rect_id())).expect("the tab sheet is laid out");
+            let (first, second) = (center(&h, names[0]), center(&h, names[1]));
+            let (third, last) = (center(&h, names[2]), center(&h, names[BAR_COLUMNS - 1]));
+            assert!(first.x - sheet.left() < 70.0, "{}: the first icon is at the left edge: {first:?} {sheet:?}", TABS[tab]);
+            assert!(sheet.right() - last.x < 70.0, "{}: the last icon is at the right edge: {last:?} {sheet:?}", TABS[tab]);
+            let step = second.x - first.x;
+            assert!(step > 60.0, "{}: the icons are spread out: step {step}", TABS[tab]);
+            assert!((third.x - second.x - step).abs() < 1.0 && (last.x - third.x - step).abs() < 1.0, "{}: even columns", TABS[tab]);
+        }
     }
 
     #[test]

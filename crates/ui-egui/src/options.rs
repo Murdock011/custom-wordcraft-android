@@ -211,6 +211,7 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
     theme_picker(app, ui);
     interface_size_picker(app, ui);
     ui.checkbox(&mut app.ui.mini_toolbar, tl!("Show the mini toolbar when text is selected"));
+    selection_menu_picker(app, ui);
     let mut dark_page = app.session.view.dark_mode;
     if ui
         .checkbox(&mut dark_page, tl!("Dark page (white text on black)"))
@@ -257,6 +258,20 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
         ui.end_row();
     });
     note(ui, "New comments and tracked changes are recorded under this name and these initials.");
+}
+
+/// The phone's selection menu: the icon bar (the default) or the list. Saved with the settings.
+fn selection_menu_picker(app: &mut WordApp, ui: &mut Ui) {
+    let mut icons = app.ui.compact_selection_menu;
+    // Label above the two choices, so a phone's narrow column keeps both on screen.
+    ui.label(tl!("Selection menu:"));
+    ui.horizontal_wrapped(|ui| {
+        ui.radio_value(&mut icons, true, tl!("Icons"))
+            .on_hover_text(tl!("A row of icons on a phone: Cut, Copy, Paste, Select All, New Comment and More. A misspelt word still shows the list, with its suggestions."));
+        ui.radio_value(&mut icons, false, tl!("List"));
+    });
+    app.ui.compact_selection_menu = icons;
+    note(ui, "On a phone. The list shows the same commands as text rows.");
 }
 
 fn display(app: &mut WordApp, ui: &mut Ui) {

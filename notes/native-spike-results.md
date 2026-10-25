@@ -818,3 +818,19 @@ Tests (`cargo test -p wordcraft-ui-egui phone`: 33 pass):
 - `compact_bar_icons_are_the_rows_they_stand_for` (phone.rs): bars are off by default, and each icon's id and label match a text row of its tab.
 
 Mockups (`notes/mockups/`, phone 412x915 pt at 2.625): `selection-menu-current.png`, `selection-menu-icons.png`, `selection-menu-compare.png`, `table-tab-current.png`, `table-tab-icons.png`, `table-tab-compare.png`. Checked by eye: the menu is visible and the selection highlight and handles are not covered.
+
+## Update 32: Icon menus by default, full-width tab bars (2026-10-25)
+Device checks: NOT RUN (the emulator was not used). Verified by unit tests, the full `wordcraft-ui-egui` suite (862 + 10 pass) and headless `ui_shot` renders at 412x915 pt, scale 2.625.
+
+1. Selection menu: icons by default. `UiState::compact_selection_menu` (saved in `ui.json` as `compactSelectionMenu`, default on; `ui.json` without the key gets the icon bar). It moved from `WordApp` so it persists. File › Options › General, Interface section, has "Selection menu:" with radio buttons "Icons" and "List" (stacked on their own line so both fit a phone's column). The list stays available; a misspelt word still shows the list, since the icon bar has no suggestions.
+2. Tab icon bars: on by default (`WordApp::compact_tab_bars`, default true). No user option: the choice was left out to keep the Options page short. Easy to add next to the selection menu later.
+3. Full-width bars: `phone::compact_tab_bar` gives each of four columns the sheet's width divided by four and centres each 48 pt button in its column. The first and last buttons of each row sit near the sheet's edges.
+4. Accessibility: `icon_button` now reports its tooltip text as the widget's accessible label, so tests and screen readers find each icon by name.
+
+Tests:
+- `selection_menu_is_icons_by_default_and_the_list_survives_a_restart` (lib.rs): icons by default, the list is set through `ui.phoneMenus`, it survives `prefs()`/`apply_prefs`, and old `ui.json` gets the icon bar.
+- `icon_bars_fill_the_sheet_width` (phone.rs): Table (inserts a table first, since the tab shows only in a table) and Layout bars, first and last buttons near the edges, even spacing.
+
+Known, not changed here: at phone width the Options page is wider than the screen (the left pane list plus a 640 pt content column), so the right edge of the General pane is clipped, and the same happens to the Interface size and theme dropdowns. That predates Update 32.
+
+Mockups (`notes/mockups/`): `selection-menu-default.png` (icon bar on a selection), `table-tab-fullwidth.png`, `layout-tab-fullwidth.png`, `options-selection-menu.png`. Checked by eye: the icon bars fill the sheet width, and the Options row shows Icons and List.
