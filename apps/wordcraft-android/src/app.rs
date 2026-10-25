@@ -12,7 +12,7 @@ use wordcraft_ui_egui::async_saves::{AsyncSaves, SaveOutcome};
 use wordcraft_ui_egui::{Inbox, Services, WordApp, MAX_RECENT};
 
 use crate::files::{self, Done, Request};
-use crate::ime::{self, Msg};
+use crate::ime::{self, Composition, Msg};
 
 /// Android `KeyEvent` codes the keyboard sends.
 const KEYCODE_ESCAPE: i32 = 111;
@@ -23,8 +23,15 @@ const KEYCODE_ENTER: i32 = 66;
 pub struct Shell {
     app: WordApp,
     pending: Vec<Event>,
-    /// The composing text, so a finish or a delete can commit it.
-    preedit: String,
+    /// The input method's composition: shown at the caret, not yet in the document. The document
+    /// paragraph is the text around it, so the composition's place is the caret.
+    comp: Composition,
+    /// Set while events queued for egui have not been applied yet. No message is read then, so
+    /// each one sees the document as the last one left it (`drain_ime`).
+    applying: bool,
+    /// Messages read from the queue so far. Published with the context: the input method knows
+    /// its edits took effect once the context's count reaches what it sent.
+    drained: u64,
     saves: AsyncSaves,
     inbox: Inbox,
     /// The Recent list as last kept on disk, so it is written only when it changes.
@@ -87,7 +94,7 @@ impl Shell {
         }
         let recent = files::load_recent();
         app.ui.recent = recent.clone();
-        Self { app, pending: Vec::new(), preedit: String::new(), saves, inbox, saved_recent: recent }
+        Self { app, pending: Vec::new(), comp: Composition::default(), applying: false, drained: 0, saves, inbox, saved_recent: recent }
     }
 
     /// A picked document now lives at `loc`: the title, Recent and plain Save follow it.
@@ -127,44 +134,121 @@ impl Shell {
         }
     }
 
+    /// The composition as egui's preedit: drawn at the caret, underlined, with the caret inside it.
+    fn show_composition(&mut self) {
+        let at = self.comp.caret_chars();
+        self.pending.push(Event::Ime(ImeEvent::Preedit { text: self.comp.text.clone(), active_range_chars: Some(at..at) }));
+    }
+
+    /// Ends the composition as final text at the caret.
+    fn finish_composition(&mut self) {
+        let text = std::mem::take(&mut self.comp).text;
+        if text.is_empty() {
+            return;
+        }
+        self.pending.push(Event::Ime(ImeEvent::Preedit { text: String::new(), active_range_chars: None }));
+        self.pending.push(Event::Ime(ImeEvent::Commit(text)));
+    }
+
+    /// Reads the queue one message at a time, and stops after one that queued events, so the
+    /// next message sees the document those events made. Reads nothing while events are applied.
     fn drain_ime(&mut self) {
-        for m in ime::drain() {
-            match m {
-                Msg::Compose(t) => {
-                    self.preedit = t.clone();
-                    self.pending.push(Event::Ime(ImeEvent::Preedit { text: t, active_range_chars: None }));
-                }
-                Msg::Commit(t) => {
-                    self.preedit.clear();
-                    self.pending.push(Event::Ime(ImeEvent::Preedit { text: String::new(), active_range_chars: None }));
-                    if t == "\n" {
-                        self.press(Key::Enter);
-                    } else if !t.is_empty() {
-                        self.pending.push(Event::Ime(ImeEvent::Commit(t)));
-                    }
-                }
-                Msg::Finish => {
-                    if !self.preedit.is_empty() {
-                        let t = std::mem::take(&mut self.preedit);
-                        self.pending.push(Event::Ime(ImeEvent::Commit(t)));
-                        self.pending.push(Event::Ime(ImeEvent::Preedit { text: String::new(), active_range_chars: None }));
-                    }
-                }
-                Msg::Delete { before, after } => {
-                    self.pending.push(Event::Ime(ImeEvent::DeleteSurrounding { before_chars: before, after_chars: after }));
-                }
-                Msg::Key(code) => {
-                    let key = match code {
-                        KEYCODE_ENTER => Key::Enter,
-                        KEYCODE_DEL => Key::Backspace,
-                        KEYCODE_FORWARD_DEL => Key::Delete,
-                        KEYCODE_ESCAPE => Key::Escape,
-                        _ => continue,
-                    };
-                    self.press(key);
-                }
+        if self.applying {
+            return;
+        }
+        while let Some(m) = ime::pop() {
+            self.drained = self.drained.saturating_add(1);
+            self.handle_ime(m);
+            if !self.pending.is_empty() {
+                break;
             }
         }
+    }
+
+    fn handle_ime(&mut self, m: Msg) {
+        match m {
+            Msg::Compose(t) => {
+                self.comp = Composition::new(t);
+                self.show_composition();
+            }
+            Msg::Commit(t) => {
+                // Commit replaces the composition, which sits where the caret is.
+                if !self.comp.text.is_empty() {
+                    self.comp = Composition::default();
+                    self.pending.push(Event::Ime(ImeEvent::Preedit { text: String::new(), active_range_chars: None }));
+                }
+                if t == "\n" {
+                    self.press(Key::Enter);
+                } else if !t.is_empty() {
+                    self.pending.push(Event::Ime(ImeEvent::Commit(t)));
+                }
+            }
+            Msg::Finish => self.finish_composition(),
+            Msg::Delete { before, after } => {
+                if self.comp.text.is_empty() {
+                    if before.saturating_add(after) > 0 {
+                        self.pending.push(Event::Ime(ImeEvent::DeleteSurrounding { before_chars: before, after_chars: after }));
+                    }
+                } else {
+                    // The composition's chars go first, as they are the text before the caret.
+                    let (b, a) = ime::erase_around_caret(&mut self.comp, before, after);
+                    if b.saturating_add(a) > 0 {
+                        self.pending.push(Event::Ime(ImeEvent::DeleteSurrounding { before_chars: b, after_chars: a }));
+                    }
+                    self.show_composition();
+                }
+            }
+            Msg::Region { start, end } => self.recompose(start, end),
+            Msg::Key(code) => {
+                if !self.comp.text.is_empty() {
+                    // DEL edits the composition; any other key ends it first.
+                    if code == KEYCODE_DEL {
+                        return self.handle_ime(Msg::Delete { before: 1, after: 0 });
+                    }
+                    self.finish_composition();
+                }
+                let key = match code {
+                    KEYCODE_ENTER => Key::Enter,
+                    KEYCODE_DEL => Key::Backspace,
+                    KEYCODE_FORWARD_DEL => Key::Delete,
+                    KEYCODE_ESCAPE => Key::Escape,
+                    _ => return,
+                };
+                self.press(key);
+            }
+        }
+    }
+
+    /// `setComposingRegion`: the words the input method takes back into composition (a word it
+    /// re-composes after a tap or a backspace) leave the document and become the composition.
+    /// Ignored while a composition is open, with a selection, or in an equation.
+    fn recompose(&mut self, start: usize, end: usize) {
+        if !self.comp.text.is_empty() {
+            return;
+        }
+        let s = &self.app.session;
+        if s.math.is_some() || !s.sel.is_collapsed() {
+            return;
+        }
+        let focus = s.sel.focus.clone();
+        let Some(para) = s.doc.para_at(&focus) else { return };
+        let Some(r) = ime::region_in_text(&para.text, focus.off, start, end) else { return };
+        if r.text.is_empty() {
+            return;
+        }
+        if r.before_chars.saturating_add(r.after_chars) > 0 {
+            self.pending.push(Event::Ime(ImeEvent::DeleteSurrounding { before_chars: r.before_chars, after_chars: r.after_chars }));
+        }
+        self.comp = Composition { text: r.text, caret: r.caret };
+        self.show_composition();
+    }
+
+    /// The text around the caret for the input method: the paragraph with the composition in it.
+    fn context_line(&self) -> String {
+        let s = &self.app.session;
+        let context = if s.math.is_some() { None } else { s.doc.para_at(&s.sel.focus).and_then(|p| ime::context(&p.text, s.sel.focus.off, &self.comp)) };
+        let context = context.unwrap_or(ime::Context { text: String::new(), caret: 0, composing: None });
+        ime::encode(self.drained, &context)
     }
 }
 
@@ -196,6 +280,9 @@ impl eframe::App for Shell {
                 _ => {}
             }
         }
+        if !self.pending.is_empty() {
+            self.applying = true;
+        }
         raw.events.append(&mut self.pending);
         raw.system_theme = Some(if ime::NIGHT.load(Ordering::Relaxed) { egui::Theme::Dark } else { egui::Theme::Light });
         self.app.raw_input_hook(raw);
@@ -207,6 +294,11 @@ impl eframe::App for Shell {
         let ctx = ui.ctx().clone();
         let _ = ime::WAKE.set(Box::new(move || ctx.request_repaint()));
         self.app.ui(ui);
+        // The events handed over this frame are applied now, so the context shows them.
+        self.applying = false;
+        if self.pending.is_empty() {
+            ime::publish_context(self.context_line());
+        }
         // egui sets `output.ime` while a text position is focused: that is when the keyboard shows.
         let wants = ui.ctx().output(|o| o.ime.is_some());
         ime::WANTS_KEYBOARD.store(wants, std::sync::atomic::Ordering::Relaxed);

@@ -31,7 +31,8 @@ fn android_main(app: AndroidApp) {
 }
 
 /// `ImeView` -> Rust. `kind`: 0 commit, 1 composing text, 2 finish composing, 3 delete surrounding
-/// (`a` before, `b` after), 4 key press (`a` is the KeyEvent code).
+/// (`a` before, `b` after, in code points), 4 key press (`a` is the KeyEvent code), 5 composing
+/// region (`a`..`b`, UTF-16 offsets into the context text).
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeIme<'local>(
@@ -49,9 +50,18 @@ pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nati
         2 => Msg::Finish,
         3 => Msg::Delete { before: a.max(0) as usize, after: b.max(0) as usize },
         4 => Msg::Key(a),
+        5 => Msg::Region { start: a.max(0) as usize, end: b.max(0) as usize },
         _ => return,
     };
     ime::push(msg);
+}
+
+/// The text around the caret for the input method: `ack`, caret, composing start and end (-1 for
+/// none), then the paragraph text, U+0001 separated (`ime::encode`).
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeContext<'local>(mut env: EnvUnowned<'local>, _this: JObject<'local>) -> JString<'local> {
+    env.with_env(|env| env.new_string(ime::context_text())).resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
 /// Whether egui wants the soft keyboard. Kotlin polls it to show or hide the keyboard.

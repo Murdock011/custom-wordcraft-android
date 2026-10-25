@@ -443,3 +443,42 @@ Device check (emulator-5554, `ai.storyteller.wordcraft.native`, focus checked be
 Not run: Save and Cancel from the prompt for Browse and Recent on device; the Save path on device.
 
 Step 4 (0-byte stream): `crates/engine/src/cmd/file.rs:236-240` still opens an empty file as a blank document. The prompt now runs before that command, so unsaved work is asked about first. Don't Save still replaces the document with the blank one. Left as is.
+
+## Update 21: Gboard composition, suggestions and autocorrect (2026-10-25)
+
+Status: Gboard does NOT compose. The composition path is built and host-tested but unreachable on device. Plain typing, Backspace and Enter work. Not committed.
+
+Finding (logcat `wc-ime`, temporary, removed): Gboard calls `commitText` once per letter ("h", "e", "l", "o") and never calls `setComposingText` or `setComposingRegion`, even after the context was populated (`getTextBeforeCursor` returned the paragraph text once the Rust context was accepted). Root cause not found. Ruled out: empty context (fixed: pull now accepted, ack 6 = sent 6, caret 402 with text); missing initial selection (added `initialSelStart/End` and a pull in `onCreateInputConnection`; Gboard still committed per key). Still open: EditorInfo flags, or Gboard's per-app composing decision for this view.
+
+Design (kept in the build, unreachable on device until Gboard composes):
+- Kotlin ImeView InputConnection mirrors the caret's paragraph (UTF-16) and the composing span. getTextBeforeCursor, getTextAfterCursor, getExtractedText, getCursorCapsMode answer from it. setComposingRegion sends kind 5.
+- Rust publishes the context each frame (`nativeContext`); Kotlin accepts it only when Rust's ack count matches Kotlin's sent count.
+- ime.rs (pure): composition kept outside the document as preedit; UTF-16 <-> byte mapping rejecting surrogate splits; erase_around_caret (composition first); region_in_text; context/encode.
+- app.rs: messages popped one at a time; the next waits until egui applied the last batch.
+
+Files: apps/wordcraft-android/src/ime.rs, app.rs, android.rs; packaging/android-native/app/src/main/java/ai/storyteller/wordcraft/nativeapp/MainActivity.kt.
+
+Tests (all PASS): cargo test -p wordcraft-android (21); cargo test -p wordcraft-ui-egui phone (20); cargo test -p wordcraft-engine typing (124); cargo xtask wasm (ok).
+
+Device, Gboard, emulator-5554, x86_64 debug APK, focus WordCraft before each screenshot, Word force-stopped:
+- a. helo underline: FAIL. Gboard typed h,e,l,o as four commits; no underline (`g21b_a2.png`, log: commitText 'h','e','l','o', caret 402..405).
+- Typing at caret: PASS (`g21b_a2.png`: "crew.helo").
+- Backspace: PASS (`g21b_sanity.png`: "hello" then Backspace gives "crew.hell").
+- Enter: NOT CONFIRMED. The page scrolled up by about one line after Enter, which suggests a new paragraph, but no caret or text check was made.
+- b. suggestion tap, c. autocorrect "teh"+space, d. backspace into a word, f. cafe via long-press: NOT RUN (composition unreachable).
+- Logcat: no panics.
+
+Not done: the temporary wc-ime logging was removed; the final build was reinstalled and the sanity run (type, Backspace, Enter) was repeated on it.
+
+Gaps: preedit draws over text after the caret (no shift); composition caret always at end; selections not reported; composing region while composing is ignored; context refresh every 150 ms.
+
+### Update 21 follow-up (2026-10-25, same build as the sanity run)
+
+- Control, stock app: Settings search, Gboard typed h,e,l,o. The field shows "helo" with suggestions "helo | hello", and no underline is visible in the text (`g21c_stock.png`). So the stock app shows no underline either. This points at Gboard or the emulator setup, not only WordCraft. Not proven: no logcat evidence of whether Gboard composed there.
+- Setup: `default_input_method` is Gboard; AVD `hw.keyboard = no` (soft keyboard), so a hardware keyboard is not the cause.
+- Control, plain EditText in WordCraft: NOT RUN (not built).
+- Enter, mid-paragraph: PASS. Caret placed in "print", Gboard Enter: the paragraph split, and "old print shop..." starts a new line (`g21c_enter.png`). The new line begins with a leading space, which was in the text after the caret.
+- a. helo underline: FAIL (Gboard commits per key; no setComposingText).
+- Typing at caret: PASS. Backspace: PASS (`g21b_sanity.png`).
+- b. suggestion tap, c. autocorrect, d. backspace into a word, f. cafe: NOT RUN (composition unreachable).
+- Temporary debug code: removed; no debug lines in the current build.

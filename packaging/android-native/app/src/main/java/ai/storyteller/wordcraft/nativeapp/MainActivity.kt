@@ -20,10 +20,13 @@ import android.print.PrintManager
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
+import android.text.TextUtils
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedText
+import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
@@ -47,11 +50,83 @@ class MainActivity : GameActivity() {
     private var keyboardShown = false
     private lateinit var imeView: ImeView
 
+    // The text the input method reads: the paragraph around the caret, with Rust's composition in it.
+    // Rust's copy is pulled each poll, and this side's own edits (below) keep it right in between.
+    private var ctxText = ""
+    private var ctxCaret = 0
+    private var ctxComp = -1
+    private var ctxCompEnd = -1
+
+    /** Messages sent to Rust. A context from Rust is taken only once Rust has read them all. */
+    private var sent = 0L
+
+    private fun send(kind: Int, text: String, a: Int, b: Int) {
+        sent++
+        nativeIme(kind, text, a, b)
+    }
+
+    /** Takes Rust's context when it has read every message sent (its count matches [sent]). */
+    private fun pullContext() {
+        val raw = nativeContext()
+        val f = raw.split('\u0001', limit = 5)
+        if (f.size < 5 || f[0].toLongOrNull() != sent) return
+        ctxCaret = f[1].toIntOrNull() ?: return
+        ctxComp = f[2].toIntOrNull() ?: -1
+        ctxCompEnd = f[3].toIntOrNull() ?: -1
+        ctxText = f[4]
+    }
+
+    /** Replaces the context's UTF-16 range [s, e) with [t]; the composition is [t] when [composing]. */
+    private fun edit(s: Int, e: Int, t: String, composing: Boolean) {
+        val lo = minOf(s, e).coerceIn(0, ctxText.length)
+        val hi = maxOf(s, e).coerceIn(0, ctxText.length)
+        ctxText = ctxText.substring(0, lo) + t + ctxText.substring(hi)
+        ctxCaret = lo + t.length
+        ctxComp = if (composing && t.isNotEmpty()) lo else -1
+        ctxCompEnd = if (ctxComp >= 0) lo + t.length else -1
+    }
+
+    /** The range a new text replaces: the composition if there is one, else nothing at the caret. */
+    private fun replacedRange(): Pair<Int, Int> = if (ctxComp >= 0 && ctxCompEnd >= ctxComp) Pair(ctxComp, ctxCompEnd) else Pair(ctxCaret, ctxCaret)
+
+    /** The index [i] steps back over one code point (a surrogate pair counts once). */
+    private fun stepBack(i: Int): Int = if (i >= 2 && Character.isLowSurrogate(ctxText[i - 1]) && Character.isHighSurrogate(ctxText[i - 2])) i - 2 else i - 1
+
+    /** The index one code point after [i]. */
+    private fun stepForward(i: Int): Int = if (i + 1 < ctxText.length && Character.isHighSurrogate(ctxText[i]) && Character.isLowSurrogate(ctxText[i + 1])) i + 2 else i + 1
+
+    /**
+     * Erases [before] and [after] around the caret in the context, in code points or UTF-16 units.
+     * Returns the code points erased before and after, which is what Rust counts.
+     */
+    private fun eraseAround(before: Int, after: Int, codePoints: Boolean): Pair<Int, Int> {
+        val caret = ctxCaret.coerceIn(0, ctxText.length)
+        var lo = caret
+        var hi = caret
+        if (codePoints) {
+            var k = before.coerceAtLeast(0)
+            while (k-- > 0 && lo > 0) lo = stepBack(lo)
+            k = after.coerceAtLeast(0)
+            while (k-- > 0 && hi < ctxText.length) hi = stepForward(hi)
+        } else {
+            lo = (lo - before.coerceAtLeast(0)).coerceAtLeast(0)
+            hi = (hi + after.coerceAtLeast(0)).coerceAtMost(ctxText.length)
+        }
+        val beforeCp = Character.codePointCount(ctxText, lo, caret)
+        val afterCp = Character.codePointCount(ctxText, caret, hi)
+        ctxText = ctxText.substring(0, lo) + ctxText.substring(hi)
+        ctxCaret = lo
+        ctxComp = -1
+        ctxCompEnd = -1
+        return Pair(beforeCp, afterCp)
+    }
+
     private val keyboardPoll = object : Runnable {
         override fun run() {
             nativeTakeRequest().takeIf { it.isNotEmpty() }?.let { files.add(it); nextFile() }
             nativeTakeClip().takeIf { it.isNotEmpty() }?.let { clipboard.setPrimaryClip(ClipData.newPlainText("WordCraft", it.substring(1))) }
             val want = nativeWantsKeyboard()
+            if (want) pullContext()
             if (want != keyboardShown) {
                 keyboardShown = want
                 if (want) showKeyboard() else hideKeyboard()
@@ -246,7 +321,7 @@ class MainActivity : GameActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 // Back closes the innermost open dialog, sheet page, sheet, menu or Backstage first.
-                if (nativeCanGoBack()) nativeIme(4, "", KeyEvent.KEYCODE_ESCAPE, 0) else leave()
+                if (nativeCanGoBack()) send(4, "", KeyEvent.KEYCODE_ESCAPE, 0) else leave()
             }
         })
         clipboard.addPrimaryClipChangedListener(clipListener)
@@ -258,7 +333,7 @@ class MainActivity : GameActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_BACK) {
             if (event.action == KeyEvent.ACTION_UP) {
-                if (nativeCanGoBack()) nativeIme(4, "", KeyEvent.KEYCODE_ESCAPE, 0) else leave()
+                if (nativeCanGoBack()) send(4, "", KeyEvent.KEYCODE_ESCAPE, 0) else leave()
             }
             return true
         }
@@ -324,6 +399,7 @@ class MainActivity : GameActivity() {
     }
 
     private fun showKeyboard() {
+        pullContext()
         imeView.requestFocus()
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.restartInput(imeView)
@@ -368,6 +444,9 @@ class MainActivity : GameActivity() {
     /** Whether egui wants the soft keyboard. */
     private external fun nativeWantsKeyboard(): Boolean
 
+    /** The text around the caret for the input method: ack, caret, composing start and end, text. */
+    private external fun nativeContext(): String
+
     /** Whether Android Back has a sheet, menu or Backstage to close. */
     private external fun nativeCanGoBack(): Boolean
 
@@ -380,50 +459,108 @@ class MainActivity : GameActivity() {
         override fun onCheckIsTextEditor(): Boolean = true
 
         override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
-            outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
+            outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN or EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_ACTION_NONE
+            // The keyboard reads the text and caret when it attaches: give it Rust's current context.
+            pullContext()
+            outAttrs.initialSelStart = ctxCaret
+            outAttrs.initialSelEnd = ctxCaret
             return Connection(this)
         }
     }
 
+    /**
+     * The keyboard's view of the text. Each edit changes the context at once (so the next read sees
+     * it) and goes to Rust, which applies it to the document; Rust's context then replaces this one.
+     */
     private inner class Connection(view: View) : BaseInputConnection(view, true) {
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-            nativeIme(0, text?.toString() ?: "", 0, 0)
+            val t = text?.toString() ?: ""
+            replacedRange().let { edit(it.first, it.second, t, composing = false) }
+            send(0, t, 0, 0)
             return true
         }
 
         override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
-            nativeIme(1, text?.toString() ?: "", 0, 0)
+            val t = text?.toString() ?: ""
+            replacedRange().let { edit(it.first, it.second, t, composing = true) }
+            send(1, t, 0, 0)
+            return true
+        }
+
+        override fun setComposingRegion(start: Int, end: Int): Boolean {
+            val lo = minOf(start, end).coerceIn(0, ctxText.length)
+            val hi = maxOf(start, end).coerceIn(0, ctxText.length)
+            if (lo < hi) {
+                ctxComp = lo
+                ctxCompEnd = hi
+                send(5, "", lo, hi)
+            }
             return true
         }
 
         override fun finishComposingText(): Boolean {
-            nativeIme(2, "", 0, 0)
+            ctxComp = -1
+            ctxCompEnd = -1
+            send(2, "", 0, 0)
             return true
         }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-            nativeIme(3, "", beforeLength, afterLength)
+            val (b, a) = eraseAround(beforeLength, afterLength, codePoints = false)
+            send(3, "", b, a)
             return true
         }
 
-        override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean =
-            deleteSurroundingText(beforeLength, afterLength)
+        override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean {
+            val (b, a) = eraseAround(beforeLength, afterLength, codePoints = true)
+            send(3, "", b, a)
+            return true
+        }
 
         override fun sendKeyEvent(event: KeyEvent): Boolean {
-            if (event.action == KeyEvent.ACTION_DOWN) nativeIme(4, "", event.keyCode, 0)
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                if (event.keyCode == KeyEvent.KEYCODE_DEL) eraseAround(1, 0, codePoints = true)
+                send(4, "", event.keyCode, 0)
+            }
             return true
         }
 
         override fun performEditorAction(actionCode: Int): Boolean {
-            nativeIme(4, "", KeyEvent.KEYCODE_ENTER, 0)
+            send(4, "", KeyEvent.KEYCODE_ENTER, 0)
             return true
         }
 
-        // ponytail: no surrounding text is reported, so Gboard's suggestions and autocorrect use
-        // only the composing word. Add the paragraph text from Rust when this is not enough.
-        override fun getTextBeforeCursor(n: Int, flags: Int): CharSequence = ""
-        override fun getTextAfterCursor(n: Int, flags: Int): CharSequence = ""
-        override fun getSelectedText(flags: Int): CharSequence? = null
+        // The context's text before and after the caret, `n` UTF-16 units (a surrogate pair is kept whole).
+        override fun getTextBeforeCursor(n: Int, flags: Int): CharSequence {
+            if (n <= 0) return ""
+            val end = ctxCaret.coerceIn(0, ctxText.length)
+            var start = (end - n).coerceAtLeast(0)
+            if (start in 1 until end && Character.isLowSurrogate(ctxText[start])) start++
+            return ctxText.substring(start, end)
+        }
+
+        override fun getTextAfterCursor(n: Int, flags: Int): CharSequence {
+            if (n <= 0) return ""
+            val start = ctxCaret.coerceIn(0, ctxText.length)
+            var end = (start + n).coerceAtMost(ctxText.length)
+            if (end in start + 1 until ctxText.length && Character.isHighSurrogate(ctxText[end - 1])) end--
+            return ctxText.substring(start, end)
+        }
+
+        // Selections are not reported: the caret is the only position the context knows.
+        override fun getSelectedText(flags: Int): CharSequence = ""
+
+        override fun getCursorCapsMode(reqModes: Int): Int = TextUtils.getCapsMode(ctxText, ctxCaret.coerceIn(0, ctxText.length), reqModes)
+
+        override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? = ExtractedText().apply {
+            text = ctxText
+            startOffset = 0
+            selectionStart = ctxCaret
+            selectionEnd = ctxCaret
+        }
+
+        // Rust moves the caret only by keys and touches; an input method's request is not applied.
+        override fun setSelection(start: Int, end: Int): Boolean = true
     }
 }
