@@ -168,7 +168,12 @@ pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, accent: Color32) {
             pen.text(10.0, 10.0, 15.0, "A", a, true);
             pen.text(10.5, 10.5, 15.0, "A", Color32::from_rgba_unmultiplied(0, 0, 0, 40), true);
         }
-        "fontdialog" => pen.line(&[(13.0, 13.0), (17.0, 17.0), (17.0, 13.0)]),
+        // "Aa" over an accent bar: a font glyph at the same size as its neighbours (Update 27).
+        "fontdialog" => {
+            pen.text(7.5, 10.0, 12.0, "A", c, true);
+            pen.text(14.5, 11.5, 9.0, "a", c, false);
+            pen.frect(3.0, 16.0, 17.0, 18.0, a);
+        }
         // Paragraph
         "bullets" => {
             for (i, y) in [5.0, 10.0, 15.0].iter().enumerate() {

@@ -2426,9 +2426,11 @@ impl WordApp {
         self.dialog.is_some() || self.colors.is_some() || phone::can_go_back(ctx) || self.ui.backstage || self.canvas.context_menu_open || !self.session.sel.is_collapsed()
     }
 
-    /// The phone's formatting bar is drawn unless a dialog sheet (or the Colors sheet) is open.
+    /// The phone's formatting bar is drawn unless a dialog sheet (or the Colors sheet) is open. The
+    /// file browser, Zotero's alert and Read Aloud are sheets on the phone too (Update 27).
     pub(crate) fn formatting_bar_shown(&self) -> bool {
-        self.dialog.is_none() && self.colors.is_none()
+        let sheet = self.phone && (self.file_browser.open.is_some() || zotero::alert_open(self) || self.session.read_aloud.open);
+        self.dialog.is_none() && self.colors.is_none() && !sheet
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {

@@ -20,6 +20,8 @@ const MAX_LISTED: usize = 5000;
 /// At most this many folder entries are read, so a huge folder can't stall the window.
 const MAX_SCANNED: usize = 100_000;
 const ROW: f32 = 24.0;
+/// A listed row on the phone: a 48 pt touch target.
+const PHONE_ROW: f32 = 48.0;
 
 /// The browser while it is open, and the folder it showed last (where it opens next time).
 #[derive(Default)]
@@ -308,17 +310,28 @@ pub(crate) fn show(app: &mut WordApp, ctx: &egui::Context) {
     let Some(mut b) = app.file_browser.open.take() else { return };
     let t = Tokens::get(ctx);
     let mut done: Option<Option<PathBuf>> = None;
-    let window = egui::Window::new(tl!(b.title()))
-        .id(egui::Id::new("builtin_file_browser"))
-        .collapsible(false)
-        .resizable(false)
-        .anchor(Align2::CENTER_CENTER, vec2(0.0, -20.0));
-    let shown = crate::window_close::window(ctx, window).show(ctx, |ui| {
-        ui.set_width(620.0);
-        done = body(ui, &mut b, &t);
-    });
-    if shown.is_some_and(|s| crate::window_close::show(ctx, &s.response, &t)) {
-        done = Some(None);
+    if app.phone {
+        // Update 27: on the phone a full-width bottom sheet, its OK and Cancel pinned at the bottom.
+        let (close, _) = crate::phone::dialog_sheet(ctx, egui::Id::new("builtin_file_browser"), b.title(), |ui| {
+            done = body(ui, &mut b, &t);
+            done.is_some()
+        });
+        if close && done.is_none() {
+            done = Some(None);
+        }
+    } else {
+        let window = egui::Window::new(tl!(b.title()))
+            .id(egui::Id::new("builtin_file_browser"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, vec2(0.0, -20.0));
+        let shown = crate::window_close::window(ctx, window).show(ctx, |ui| {
+            ui.set_width(620.0);
+            done = body(ui, &mut b, &t);
+        });
+        if shown.is_some_and(|s| crate::window_close::show(ctx, &s.response, &t)) {
+            done = Some(None);
+        }
     }
     app.file_browser.open = Some(b);
     if let Some(picked) = done {
@@ -326,8 +339,53 @@ pub(crate) fn show(app: &mut WordApp, ctx: &egui::Context) {
     }
 }
 
+/// The file name field and the file type list. On the phone each takes a full-width row of its own;
+/// on the desktop they share one row. True when the type changed (the folder is listed again).
+fn name_and_type(ui: &mut Ui, b: &mut FileBrowser, phone: bool) -> bool {
+    let before = b.filter;
+    if phone {
+        let label = ui.label(tl!("File name:"));
+        let width = ui.available_width();
+        name_edit(ui, b, width, label.id);
+        type_list(ui, b, width);
+    } else {
+        ui.horizontal(|ui| {
+            let label = ui.label(tl!("File name:"));
+            // The name field takes what the label (longer in some languages) and the type list leave.
+            let width = (ui.available_width() - 170.0).max(120.0);
+            name_edit(ui, b, width, label.id);
+            type_list(ui, b, 150.0);
+        });
+    }
+    b.filter != before
+}
+
+/// The file name field (48 pt on the phone), labelled by `label`.
+fn name_edit(ui: &mut Ui, b: &mut FileBrowser, width: f32, label: egui::Id) {
+    let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut b.name).desired_width(width))).labelled_by(label);
+    if b.focus_name {
+        r.request_focus();
+        b.focus_name = false;
+    }
+    if r.changed() {
+        b.selected = None;
+        b.note = Note::None;
+    }
+}
+
+/// The file type list.
+fn type_list(ui: &mut Ui, b: &mut FileBrowser, width: f32) {
+    let current = b.filters.get(b.filter).map(|(l, _)| tl!(l.as_str()).to_string()).unwrap_or_default();
+    egui::ComboBox::from_id_salt("builtin_file_browser_type").selected_text(current).width(width).show_ui(ui, |ui| {
+        for (i, (l, _)) in b.filters.iter().enumerate() {
+            ui.selectable_value(&mut b.filter, i, tl!(l.as_str()));
+        }
+    });
+}
+
 /// The browser's contents; `Some` once it closes (`Some(None)`: cancelled).
 fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>> {
+    let phone = crate::phone::active(ui.ctx());
     if b.unavailable {
         ui.label(
             egui::RichText::new(tl!(
@@ -347,7 +405,7 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
         {
             b.navigate(h);
         }
-        let r = ui.add(egui::TextEdit::singleline(&mut b.location).desired_width(f32::INFINITY));
+        let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut b.location).desired_width(f32::INFINITY)));
         if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
             location_done = true;
             let typed = b.location.clone();
@@ -364,9 +422,11 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
         let entries: &[Entry] = b.listing.as_ref().map(|l| l.entries.as_slice()).unwrap_or(&[]);
         // An unreadable folder has its own message below; the hint is for a listing that came back empty.
         let listed = b.listing.is_ok();
+        // A row is 48 pt on the phone (a touch target), 24 pt on the desktop.
+        let row = if crate::phone::active(ui.ctx()) { PHONE_ROW } else { ROW };
         egui::ScrollArea::vertical().max_height(300.0).min_scrolled_height(300.0).auto_shrink([false, false]).show_rows(
             ui,
-            ROW,
+            row,
             entries.len(),
             |ui, range| {
                 if listed && entries.is_empty() {
@@ -378,15 +438,17 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
                     });
                 }
                 for e in entries.get(range).unwrap_or(&[]) {
-                    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::click());
+                    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row), Sense::click());
                     if b.selected.as_ref() == Some(&e.path) {
                         ui.painter().rect_filled(r, 2.0, t.checked);
                     } else if resp.hovered() {
                         ui.painter().rect_filled(r, 2.0, t.hover);
                     }
-                    let icon = Rect::from_center_size(pos2(r.min.x + 14.0, r.center().y), vec2(18.0, 18.0));
+                    // Phone rows: a larger icon and 16 pt text, with more room from the edge.
+                    let (icon_x, icon_s, text_x, text_size) = if phone { (24.0, 22.0, 52.0, 16.0) } else { (14.0, 18.0, 30.0, 13.0) };
+                    let icon = Rect::from_center_size(pos2(r.min.x + icon_x, r.center().y), vec2(icon_s, icon_s));
                     icons::paint(ui.painter(), icon, if e.dir { "folder" } else { "file" }, t.icon, t.accent);
-                    ui.painter().with_clip_rect(r).text(pos2(r.min.x + 30.0, r.center().y), Align2::LEFT_CENTER, &e.name, regular(13.0), t.text);
+                    ui.painter().with_clip_rect(r).text(pos2(r.min.x + text_x, r.center().y), Align2::LEFT_CENTER, &e.name, regular(text_size), t.text);
                     if resp.double_clicked() {
                         if e.dir {
                             go = Some(e.path.clone());
@@ -423,43 +485,27 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
         ui.label(egui::RichText::new(text).color(color));
     }
     ui.add_space(6.0);
-    let mut refilter = false;
-    ui.horizontal(|ui| {
-        let label = ui.label(tl!("File name:"));
-        // The name field takes what the label (longer in some languages) and the type list leave.
-        let width = (ui.available_width() - 170.0).max(120.0);
-        let r = ui.add(egui::TextEdit::singleline(&mut b.name).desired_width(width)).labelled_by(label.id);
-        if b.focus_name {
-            r.request_focus();
-            b.focus_name = false;
-        }
-        if r.changed() {
-            b.selected = None;
-            b.note = Note::None;
-        }
-        let before = b.filter;
-        let current = b.filters.get(b.filter).map(|(l, _)| tl!(l.as_str()).to_string()).unwrap_or_default();
-        egui::ComboBox::from_id_salt("builtin_file_browser_type").selected_text(current).width(150.0).show_ui(ui, |ui| {
-            for (i, (l, _)) in b.filters.iter().enumerate() {
-                ui.selectable_value(&mut b.filter, i, tl!(l.as_str()));
-            }
-        });
-        refilter = b.filter != before;
-    });
+    let refilter = name_and_type(ui, b, phone);
     if refilter {
         b.navigate(b.dir.clone());
     }
     ui.add_space(8.0);
     let mut cancel = ui.input(|i| i.key_pressed(egui::Key::Escape));
     let enter = !location_done && ui.input(|i| i.key_pressed(egui::Key::Enter));
-    ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let (ok, cancelb) =
-                crate::dialogs::ok_cancel_responses(ui, |ui| ui.add(crate::widgets::primary_button(ui, tl!(b.ok_label()))), tl!("Cancel"));
-            cancel |= cancelb.clicked();
-            pick |= ok.clicked() || enter;
+    // On the phone OK and Cancel sit in the sheet's pinned footer (Cancel left, OK right).
+    if let Some((ok, cancelb)) = crate::dialogs::footer_buttons(ui, tl!(b.ok_label()), tl!("Cancel"), true, false, false) {
+        cancel |= cancelb;
+        pick |= ok || enter;
+    } else {
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let (ok, cancelb) =
+                    crate::dialogs::ok_cancel_responses(ui, |ui| ui.add(crate::widgets::primary_button(ui, tl!(b.ok_label()))), tl!("Cancel"));
+                cancel |= cancelb.clicked();
+                pick |= ok.clicked() || enter;
+            });
         });
-    });
+    }
     if cancel {
         return Some(None);
     }
@@ -471,12 +517,14 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
 
 /// A small button with a drawn icon and a tooltip; true when clicked.
 fn icon_button(ui: &mut Ui, t: &Tokens, icon: &str, tip: &str, enabled: bool) -> bool {
-    let (r, resp) = ui.allocate_exact_size(vec2(28.0, 24.0), if enabled { Sense::click() } else { Sense::hover() });
+    // 48 pt square on the phone (a touch target), 28 x 24 on the desktop.
+    let (size, icon_s) = if crate::phone::active(ui.ctx()) { (vec2(48.0, 48.0), 24.0) } else { (vec2(28.0, 24.0), 18.0) };
+    let (r, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
     if enabled && resp.hovered() {
         ui.painter().rect_filled(r, 3.0, t.hover);
     }
     let c = if enabled { t.icon } else { t.text_disabled };
-    icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(18.0, 18.0)), icon, c, if enabled { t.accent } else { c });
+    icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(icon_s, icon_s)), icon, c, if enabled { t.accent } else { c });
     resp.on_hover_text(tip).clicked()
 }
 
@@ -573,6 +621,39 @@ mod tests {
 
     /// #3037: an empty folder (or a type filter that matches nothing) says so instead of a blank
     /// box; a matching file replaces the hint.
+    /// Update 27: on the phone the built-in browser is a full-width sheet with OK and Cancel
+    /// pinned at its bottom (48 pt); on the desktop it stays a window, and Escape cancels both.
+    #[test]
+    fn file_browser_is_a_sheet_on_the_phone_and_a_window_on_desktop() {
+        use egui_kittest::kittest::Queryable;
+        for (w, h, phone) in [(400.0, 800.0, true), (1440.0, 900.0, false)] {
+            let mut a = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+            a.show_file_browser(FileDialogRequest::Open { purpose: "document".into() }, AfterPick::OpenDocument, false);
+            let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(w, h)).build_ui_state(
+                |ui, app: &mut crate::WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                a,
+            );
+            harness.run_steps(4);
+            assert_eq!(harness.state().phone, phone, "a {w} pt screen");
+            let area = harness.ctx.memory(|m| m.area_rect(egui::Id::new("builtin_file_browser"))).expect("the browser is drawn");
+            if phone {
+                assert!((area.width() - w).abs() < 1.0, "the sheet is the full width: {area:?}");
+                let cancel = harness.get_by_label("Cancel").rect();
+                assert!(cancel.height() >= 48.0, "Cancel is 48 pt tall: {cancel:?}");
+                assert!(cancel.bottom() > 700.0, "pinned at the bottom of the sheet: {cancel:?}");
+            } else {
+                assert!(area.width() < 700.0, "a window, not full width: {area:?}");
+            }
+            harness.key_press(egui::Key::Escape);
+            harness.run_steps(3);
+            assert!(harness.state().file_browser.open.is_none(), "Escape cancels the browser (phone {phone})");
+        }
+    }
+
     #[test]
     fn an_empty_folder_says_there_are_no_items() {
         let dir = scratch("empty_state");

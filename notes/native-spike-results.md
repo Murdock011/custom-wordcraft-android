@@ -656,3 +656,46 @@ Follow-ups:
 2. Number keyboard for DragValue indent and spacing fields on Android (Update 24 follow-up).
 3. file_browser.rs, read_aloud.rs, zotero alert to the phone sheet host.
 4. Save Changes footer (focus handling kept).
+
+## Update 27: Remaining dialogs as phone sheets (2026-10-25)
+Scope: the built-in file browser, Read Aloud, Zotero's alert on the phone; the Font… and Paragraph… icons. Device pass only partly reached (see below).
+
+Choices:
+- File browser: on the phone a `phone::dialog_sheet` with the name field and type list stacked full width, touch-sized 48 pt list rows, 48 pt icon buttons, the path and name fields via `touch_edit`, and OK/Cancel in the pinned footer (`dialogs::footer_buttons`). Desktop unchanged (window, 620 pt).
+- Read Aloud: chose a bottom sheet over a docked bar above the formatting bar. Reason: the four transport controls become 48 pt targets spread across the width, the slider and checkbox get full width, and it doesn't fight the formatting bar for space. Cost: the sheet covers the bottom of the page while reading. Closing the sheet stops reading (as the window's close box does). Desktop unchanged (floating window).
+- Zotero alert: sheet on the phone, buttons in `dialogs::footer_row` ordered lowest value left (Cancel/No) and affirmative right and primary (Enter). Closing the sheet answers the lowest choice so Zotero is never left waiting. Desktop unchanged.
+- Formatting bar hides under any of these phone sheets (`App::formatting_bar_shown`), same fix as Update 23.
+- Icons: `fontdialog` redrawn as "Aa" over an accent bar (was a short stroke). Also used by the Font family list row. `lineSpacing` kept as is (it already fills the 24 pt box).
+
+Files changed:
+- `crates/ui-egui/src/file_browser.rs`: `show` (phone sheet), `body` (footer, touch fields), `name_and_type`, `name_edit`, `type_list`, `icon_button` (48 pt on phone), `PHONE_ROW`, test `file_browser_is_a_sheet_on_the_phone_and_a_window_on_desktop`.
+- `crates/ui-egui/src/read_aloud.rs`: rewritten `show` (sheet or window), `controls` (shared), `button` (size and icon size), test `read_aloud_is_a_sheet_on_the_phone_and_a_window_on_desktop`.
+- `crates/ui-egui/src/zotero.rs`: `show_alert` (phone sheet), `alert_open`, test `zotero_alert_is_a_sheet_on_the_phone_and_a_window_on_desktop`.
+- `crates/ui-egui/src/lib.rs`: `formatting_bar_shown`.
+- `crates/ui-egui/src/icons.rs`: `fontdialog`.
+
+Tests:
+- `cargo test -p wordcraft-ui-egui`: 854 passed, 0 failed, 2 ignored (851 before, +3 new).
+- `cargo test -p wordcraft-android`: 21 passed, 0 failed.
+- `cargo xtask wasm`: ok (16 crates).
+- Clippy: not run.
+
+Device (emulator-5554, `ai.storyteller.wordcraft.native`, Word not running, WordCraft focus checked):
+- d27_00_launch.png: Recover page (existing drafts). Back arrow used, no drafts discarded.
+- d27_01_editor.png, d27_02_nokbd.png: editor, keyboard hidden with Back.
+- d27_03_backstage.png: the document icon opened Recover again (not Backstage).
+- d27_04_menu.png: navigation drawer; Open is in it.
+- d27_05_open.png: Open page with "Browse in WordCraft…" (reachable on Android).
+- d27_06_filebrowser.png: file browser as a full-width sheet, OK/Cancel pinned. PASS for layout. Listing is blocked on this device: the root reads "Permission denied (os error 13)", and Home does not list a readable folder. Not a layout problem; the sandbox blocks the built-in browser's folder listing here. Follow-up: check on an Android build with storage access.
+- d27_07_filebrowser_home.png: after Home, same error, Documents type list stacked full width. PASS layout.
+- Cancel closed the sheet.
+
+NOT RUN in this pass:
+- Read Aloud (Review tab) on device: sheet not screenshot. Headless test only.
+- Zotero alert on device: NOT REACHABLE without an account.
+- Font… and Paragraph… icons on device: not checked after the redraw. Headless build only.
+
+Follow-ups:
+1. Device pass for the file browser listing on Android (storage permission route).
+2. Device pass for Read Aloud (Review tab) and the Font…/Paragraph… icons.
+3. Save Changes footer (focus handling kept), as in Update 26.

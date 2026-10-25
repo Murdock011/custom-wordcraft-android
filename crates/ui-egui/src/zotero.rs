@@ -229,32 +229,97 @@ pub fn show_alert(app: &mut WordApp, ctx: &egui::Context) {
         _ => &[("OK", 1)],
     };
     let mut picked = None;
-    egui::Window::new("Zotero")
-        .id(egui::Id::new("zotero-alert"))
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -40.0))
-        .show(ctx, |ui| {
-            ui.set_max_width(460.0);
+    if app.phone {
+        // Update 27: a bottom sheet on the phone, its buttons in the pinned footer. The lowest answer
+        // is on the left (Cancel, No) and the affirmative one on the right, primary (Enter presses it).
+        // Closing the sheet gives the lowest answer, as Cancel would, so Zotero is never left waiting.
+        let mut sorted: Vec<(&str, i64)> = buttons.to_vec();
+        sorted.sort_by_key(|(_, v)| *v);
+        let labels: Vec<&str> = sorted.iter().map(|(l, _)| tl!(l)).collect();
+        let primary = labels.len().saturating_sub(1);
+        let (close, _) = crate::phone::dialog_sheet(ctx, egui::Id::new("zotero-alert"), "Zotero", |ui| {
             ui.label(a.text.trim_end());
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                for (label, v) in buttons {
-                    if ui.button(tl!(label)).clicked() {
-                        picked = Some(*v);
-                    }
-                }
-            });
+            if let Some(Some(i)) = crate::dialogs::footer_row(ui, &labels, primary, true) {
+                picked = sorted.get(i).map(|(_, v)| *v);
+            }
+            false
         });
+        if close && picked.is_none() {
+            picked = sorted.first().map(|(_, v)| *v);
+        }
+    } else {
+        egui::Window::new("Zotero")
+            .id(egui::Id::new("zotero-alert"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -40.0))
+            .show(ctx, |ui| {
+                ui.set_max_width(460.0);
+                ui.label(a.text.trim_end());
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    for (label, v) in buttons {
+                        if ui.button(tl!(label)).clicked() {
+                            picked = Some(*v);
+                        }
+                    }
+                });
+            });
+    }
     if let Some(v) = picked {
         let _ = answer(app, v);
         ctx.request_repaint();
     }
 }
 
+/// Whether Zotero is waiting on an answer (the alert is up). The formatting bar hides under it on the phone.
+pub(crate) fn alert_open(app: &WordApp) -> bool {
+    app.zotero.alert.is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::TcpListener;
+
+    /// Update 27: Zotero's alert is a full-width sheet on the phone, with 48 pt buttons pinned at its
+    /// bottom and Cancel left; closing it answers with the lowest choice. On the desktop it stays a window.
+    #[test]
+    fn zotero_alert_is_a_sheet_on_the_phone_and_a_window_on_desktop() {
+        use super::Alert;
+        use egui_kittest::kittest::Queryable;
+        for (w, h, phone) in [(400.0, 800.0, true), (1440.0, 900.0, false)] {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+            app.zotero.alert = Some(Alert { text: "Replace the citation?".into(), buttons: 1, reply: tx });
+            let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(w, h)).build_ui_state(
+                |ui, app: &mut crate::WordApp| {
+                    let ctx = ui.ctx().clone();
+                    app.logic(&ctx);
+                    app.ui(ui);
+                },
+                app,
+            );
+            harness.run_steps(4);
+            assert_eq!(harness.state().phone, phone, "a {w} pt screen");
+            let area = harness.ctx.memory(|m| m.area_rect(egui::Id::new("zotero-alert"))).expect("the alert is drawn");
+            if phone {
+                assert!((area.width() - w).abs() < 1.0, "the sheet is the full width: {area:?}");
+                let cancel = harness.get_by_label("Cancel").rect();
+                let ok = harness.get_by_label("OK").rect();
+                assert!(cancel.height() >= 48.0 && ok.height() >= 48.0, "buttons are 48 pt: {cancel:?} {ok:?}");
+                assert!(cancel.right() <= w / 2.0 && ok.left() >= w / 2.0, "Cancel left, OK right: {cancel:?} {ok:?}");
+                assert!(ok.bottom() > 700.0, "pinned at the bottom: {ok:?}");
+                harness.key_press(egui::Key::Escape);
+                harness.run_steps(3);
+                assert!(harness.state().zotero.alert.is_none(), "closing the sheet answers the alert");
+                assert_eq!(rx.try_recv().ok().and_then(|r| r.ok()), Some(serde_json::json!(0)), "closing answers Cancel");
+            } else {
+                assert!(area.width() < 700.0, "a window, not full width: {area:?}");
+            }
+        }
+    }
+
 
     use serde_json::{Value, json};
     use wordcraft_doc::{Document, StoryRef};
