@@ -136,6 +136,9 @@ fn pane_label(id: &str) -> &'static str {
 
 /// The Options page.
 pub fn page(app: &mut WordApp, ui: &mut Ui) {
+    if crate::phone::active(ui.ctx()) {
+        return phone_page(app, ui);
+    }
     let t = Tokens::get(ui.ctx());
     ui.label(RichText::new(tl!("Options")).font(semibold(26.0)));
     ui.add_space(16.0);
@@ -167,18 +170,91 @@ pub fn page(app: &mut WordApp, ui: &mut Ui) {
         ui.add_space(20.0);
         ui.vertical(|ui| {
             ui.set_max_width(640.0);
-            match current.as_str() {
-                "display" => display(app, ui),
-                "proofing" => proofing(app, ui),
-                "save" => save(app, ui),
-                "language" => language(app, ui),
-                "accessibility" => accessibility(app, ui),
-                "advanced" => advanced(app, ui),
-                "agents" => agents(ui),
-                _ => general(app, ui),
-            }
+            pane_content(app, ui, &current);
         });
     });
+}
+
+/// The settings of one pane: desktop's right-hand side, or a phone's full-width category.
+fn pane_content(app: &mut WordApp, ui: &mut Ui, pane: &str) {
+    match pane {
+        "display" => display(app, ui),
+        "proofing" => proofing(app, ui),
+        "save" => save(app, ui),
+        "language" => language(app, ui),
+        "accessibility" => accessibility(app, ui),
+        "advanced" => advanced(app, ui),
+        "agents" => agents(ui),
+        _ => general(app, ui),
+    }
+}
+
+/// The icon a category shows in the phone's list.
+fn pane_icon(id: &str) -> &'static str {
+    match id {
+        "display" => "printLayout",
+        "proofing" => "checkErrors",
+        "save" => "save",
+        "language" => "fonts",
+        "accessibility" => "accessibility",
+        "advanced" => "docPrefs",
+        "agents" => "researcher",
+        _ => "options",
+    }
+}
+
+/// Whether a category is open full width on the phone. Off: the list of categories shows.
+fn phone_category_id() -> egui::Id {
+    egui::Id::new("phone_options_category_open")
+}
+
+pub(crate) fn phone_category_open(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(phone_category_id())).unwrap_or(false)
+}
+
+/// Opens or closes a category on the phone. Closing shows the list again.
+pub(crate) fn set_phone_category_open(ctx: &egui::Context, open: bool) {
+    ctx.data_mut(|d| d.insert_temp(phone_category_id(), open));
+}
+
+/// File › Options on a phone (Update 32): the categories as a full-width list. A tapped category
+/// opens full width under a Back row; Back or Escape returns to the list. Pages wrap to the
+/// screen's width instead of sitting in the desktop's two columns.
+fn phone_page(app: &mut WordApp, ui: &mut Ui) {
+    let m = crate::phone::md(ui.ctx());
+    let ctx = ui.ctx().clone();
+    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        set_phone_category_open(&ctx, false);
+    }
+    if !phone_category_open(&ctx) {
+        for id in PANES {
+            if crate::phone::list_row(ui, m, pane_label(id), pane_icon(id), true).clicked() {
+                app.ui.options_pane = id.to_string();
+                set_phone_category_open(&ctx, true);
+            }
+        }
+        return;
+    }
+    let current = if PANES.contains(&app.ui.options_pane.as_str()) { app.ui.options_pane.clone() } else { "general".to_string() };
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), egui::Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Back")));
+    if resp.hovered() || resp.is_pointer_button_down_on() {
+        ui.painter().rect_filled(r, 0.0, m.surface_high);
+    }
+    crate::icons::paint(
+        ui.painter(),
+        egui::Rect::from_center_size(egui::pos2(r.left() + 24.0, r.center().y), vec2(24.0, 24.0)),
+        "chevronLeft",
+        m.on_surface_variant,
+        m.primary,
+    );
+    ui.painter().text(egui::pos2(r.left() + 56.0, r.center().y), egui::Align2::LEFT_CENTER, tl!(pane_label(&current)), semibold(16.0), m.on_surface);
+    if resp.clicked() {
+        set_phone_category_open(&ctx, false);
+        return;
+    }
+    ui.add_space(8.0);
+    pane_content(app, ui, &current);
 }
 
 fn section(ui: &mut Ui, title: &str) {
@@ -335,7 +411,7 @@ fn dictionaries(app: &mut WordApp, ui: &mut Ui) {
     let id = egui::Id::new("options_dictionaries_folder");
     let mut folder = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| saved.clone());
     ui.label(tl!("Dictionaries folder:"));
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let r = ui.add(egui::TextEdit::singleline(&mut folder).desired_width(320.0).hint_text(tl!("Not set: the system's usual places")));
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         let changed = folder.trim() != saved;
@@ -411,7 +487,7 @@ fn custom_dictionary(app: &mut WordApp, ui: &mut Ui) {
     }
     egui::ScrollArea::vertical().id_salt("options_dictionary").max_height(180.0).show(ui, |ui| {
         for w in &words {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.allocate_ui_with_layout(vec2(220.0, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     ui.set_min_width(220.0);
                     ui.add(egui::Label::new(w.as_str()).truncate());
@@ -424,7 +500,7 @@ fn custom_dictionary(app: &mut WordApp, ui: &mut Ui) {
     });
     let id = egui::Id::new("options_dictionary_new");
     let mut word = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_default();
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let r = ui.add(egui::TextEdit::singleline(&mut word).desired_width(220.0).char_limit(MAX_WORD_CHARS).hint_text(tl!("New word")));
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         let w = word.trim().to_string();
@@ -487,7 +563,7 @@ fn accessibility(app: &mut WordApp, ui: &mut Ui) {
     ui.add_space(8.0);
     section(ui, "Read Aloud");
     let mut rate = app.session.read_aloud.rate();
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(tl!("Speed"));
         let r = ui.add(egui::Slider::new(&mut rate, MIN_RATE..=MAX_RATE).step_by(0.05).custom_formatter(|v, _| format!("{v:.2}×")));
         if r.changed() {
@@ -584,13 +660,13 @@ fn advanced(app: &mut WordApp, ui: &mut Ui) {
     }
     ui.add_space(8.0);
     section(ui, "Customize");
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(tl!("Keyboard shortcuts:"));
         if ui.button(tl!("Customize…")).clicked() {
             let _ = app.run("tools.customizeKeyboard", json!({}));
         }
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(tl!("Ribbon and Quick Access Toolbar:"));
         if ui.button(tl!("Customize…")).clicked() {
             let _ = app.run("tools.customizeRibbon", json!({}));
@@ -606,7 +682,7 @@ fn templates_folder(app: &mut WordApp, ui: &mut Ui) {
     let mut folder = ui.data(|d| d.get_temp::<String>(id)).unwrap_or_else(|| saved.clone());
     let default = app.services.templates_dir.as_ref().map(|d| d.to_string_lossy().into_owned());
     ui.label(tl!("User templates:"));
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let hint = default.clone().unwrap_or_else(|| tl!("Not set").to_string());
         let r = ui.add(egui::TextEdit::singleline(&mut folder).desired_width(320.0).hint_text(hint));
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -636,7 +712,7 @@ fn agents(ui: &mut Ui) {
 /// Interface theme: Light, Dark, or follow the system's appearance (#115).
 fn theme_picker(app: &mut WordApp, ui: &mut Ui) {
     use crate::theme::Appearance;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(tl!("Interface theme:"));
         egui::ComboBox::from_id_salt("interface_theme").selected_text(tl!(app.ui.theme.label())).width(220.0).show_ui(ui, |ui| {
             for a in Appearance::ALL {
@@ -656,7 +732,7 @@ fn interface_size_picker(app: &mut WordApp, ui: &mut Ui) {
     let native = ui.ctx().native_pixels_per_point().unwrap_or(1.0);
     let auto = crate::i18n::fmt(tl!("Auto ({percent}%)"), &[("percent", &InterfaceSize::AUTO.drawn_percent(native).to_string())]);
     let selected = size.percent().map_or_else(|| auto.clone(), |pct| format!("{pct}%"));
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(tl!("Interface size:"));
         egui::ComboBox::from_id_salt("interface_size").selected_text(selected).width(220.0).show_ui(ui, |ui| {
             if ui.selectable_label(size.is_auto(), auto).clicked() {
@@ -682,7 +758,7 @@ fn interface_size_picker(app: &mut WordApp, ui: &mut Ui) {
 /// setting" a line says what the system reports, so it is plain what the choice comes to here.
 fn animations_picker(app: &mut WordApp, ui: &mut Ui) {
     use crate::theme::Animations;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(tl!("Animation effects:"));
         egui::ComboBox::from_id_salt("animation_effects").selected_text(tl!(app.ui.animations.label())).width(220.0).show_ui(ui, |ui| {
             for a in Animations::ALL {
@@ -711,7 +787,7 @@ fn language_picker(app: &mut WordApp, ui: &mut Ui) {
     let system = crate::i18n::system_lang();
     let auto_label = crate::i18n::fmt(tl!("Automatic ({language})"), &[("language", system.name())]);
     let current = if app.ui.language == AUTO { auto_label.clone() } else { Lang::from_pref(&app.ui.language).name().to_string() };
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(tl!("Interface language:"));
         egui::ComboBox::from_id_salt("interface_language").selected_text(current).width(220.0).show_ui(ui, |ui| {
             if ui.selectable_label(app.ui.language == AUTO, auto_label.as_str()).clicked() {
@@ -820,7 +896,7 @@ fn default_app_button(app: &mut WordApp, ui: &mut Ui) {
 /// File › Options › Advanced › Numeral).
 fn numeral_picker(app: &mut WordApp, ui: &mut Ui) {
     use wordcraft_layout::NumeralMode;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(tl!("Numerals:"));
         let mut sel = app.session.view.numeral;
         egui::ComboBox::from_id_salt("numerals").selected_text(tl!(sel.label())).width(220.0).show_ui(ui, |ui| {
@@ -1297,5 +1373,75 @@ mod tests {
         h.state_mut().run("ui.language", json!({"value": "en"})).unwrap();
         h.run_steps(4);
         assert_eq!(length(72.0), "25,4 mm", "English keeps the English names");
+    }
+}
+
+#[cfg(test)]
+mod phone_tests {
+    use egui_kittest::kittest::Queryable;
+    use serde_json::json;
+
+    use super::{PANES, phone_category_open};
+    use crate::{Services, WordApp};
+
+    /// File › Options open at `width` pt (a phone is 412 pt wide, the desktop 1440).
+    fn options(width: f32) -> egui_kittest::Harness<'static, WordApp> {
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+        a.run("file.options", json!({})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(width, 915.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        h
+    }
+
+    /// Update 32: on a phone the categories show as a list first; no settings are on screen yet.
+    #[test]
+    fn phone_options_shows_the_list_first() {
+        let h = options(412.0);
+        assert!(!phone_category_open(&h.ctx), "the list is shown first");
+        for id in PANES {
+            let label = crate::i18n::tr(crate::i18n::Lang::from_pref("en"), super::pane_label(id));
+            assert!(h.query_all_by_label(label).next().is_some(), "{label} is a row of the list");
+        }
+        assert!(h.query_all_by_label("Icons").next().is_none(), "the General settings wait behind the General row");
+    }
+
+    /// Update 32: a tapped category opens full width with its controls on the screen, and Back
+    /// returns to the list. Escape does the same without leaving Options.
+    #[test]
+    fn a_category_opens_full_width_and_back_returns_to_the_list() {
+        let mut h = options(412.0);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "General").click();
+        h.run_steps(4);
+        assert!(phone_category_open(&h.ctx), "General opened");
+        let icons = h.get_by_role_and_label(egui::accesskit::Role::RadioButton, "Icons").rect();
+        let list = h.get_by_role_and_label(egui::accesskit::Role::RadioButton, "List").rect();
+        assert!(icons.left() >= 0.0 && list.right() <= 412.0, "Icons / List fit the screen: {icons:?} {list:?}");
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Back").click();
+        h.run_steps(4);
+        assert!(!phone_category_open(&h.ctx), "Back returns to the list");
+        assert!(h.query_all_by_label("Icons").next().is_none());
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Display").click();
+        h.run_steps(4);
+        assert!(phone_category_open(&h.ctx), "Display opened");
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        assert!(!phone_category_open(&h.ctx), "Escape returns to the list");
+        assert!(h.state().ui.backstage, "Escape left Options open");
+    }
+
+    /// Update 32: the desktop keeps two columns: the category list beside the settings, no Back row.
+    #[test]
+    fn desktop_keeps_the_two_pane_layout() {
+        let h = options(1440.0);
+        assert!(!crate::phone::active(&h.ctx), "a 1440 pt window is not a phone");
+        assert!(h.query_all_by_label("Icons").next().is_some(), "the General settings sit beside the list");
+        assert!(h.query_all_by_label("Back").next().is_none(), "no Back row on the desktop");
     }
 }

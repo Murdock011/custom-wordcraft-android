@@ -2492,8 +2492,13 @@ impl WordApp {
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let ctx_escape = ui.ctx().input(|i| i.key_pressed(egui::Key::Escape));
-        if ctx_escape && self.ui.backstage {
+        // On a phone, Escape in an open Options category goes back to its list (options::phone_page).
+        if ctx_escape && self.ui.backstage && !options::phone_category_open(ui.ctx()) {
             self.ui.backstage = false;
+        }
+        // The list shows whenever Backstage is opened again.
+        if !self.ui.backstage {
+            options::set_phone_category_open(ui.ctx(), false);
         }
         let t0 = now_ms();
         let ctx = ui.ctx().clone();

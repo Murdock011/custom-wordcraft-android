@@ -834,3 +834,10 @@ Tests:
 Known, not changed here: at phone width the Options page is wider than the screen (the left pane list plus a 640 pt content column), so the right edge of the General pane is clipped, and the same happens to the Interface size and theme dropdowns. That predates Update 32.
 
 Mockups (`notes/mockups/`): `selection-menu-default.png` (icon bar on a selection), `table-tab-fullwidth.png`, `layout-tab-fullwidth.png`, `options-selection-menu.png`. Checked by eye: the icon bars fill the sheet width, and the Options row shows Icons and List.
+
+Addendum (Update 32, second pass): phone Options.
+5. On a phone, File › Options opens as a full-width list of the categories (48 pt rows, `phone::list_row`). A tapped category opens full width with a Back row above it. Back, and Escape, return to the list; leaving Backstage shows the list again. Escape in an open category does not close Backstage (`lib.rs` `ui`). The pages wrap to the screen width: the 640 pt column and the two-pane layout are desktop only, and the rows in the pages use `horizontal_wrapped`, so a control that does not fit moves to the next line under its label.
+6. Tests (`options.rs` `phone_tests`): the list shows first; a category opens with its radio buttons inside the 412 pt screen; Back returns to the list; Escape returns to the list and keeps Options open; the desktop keeps the two-pane layout with no Back row.
+7. Mockups: `options-phone-list.png` (the category list) and `options-phone-general.png` (General, with "Selection menu: Icons / List" fully visible). Both checked by eye: nothing is cut off on the right.
+`ui_shot` takes `{"tap": [x, y]}` (a phone point) for these screens.
+Full `cargo test -p wordcraft-ui-egui`: 865 + 10 pass. `cargo xtask wasm`: ok.

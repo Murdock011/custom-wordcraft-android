@@ -7,7 +7,7 @@
 //! `docs/control-protocol.md`), `{"shot": "/abs/out.png"}` to save the window as PNG, or
 //! `{"steps": n}` to run extra frames, or `{"wait": ms}` to keep running frames for a while (for
 //! background work such as a Zotero session). The window is 1440×900 pt at 2× and opens the sample
-//! document unless the first line is `{"empty": true}`; `{"empty": true, "startScreen": true}`
+//! document unless the first line is `{"empty": true}`; `{"tap": [x, y]}` taps a phone point; `{"empty": true, "startScreen": true}`
 //! starts the way the desktop app does with nothing to open (File › Home, #766).
 
 use wordcraft_engine::Session;
@@ -78,6 +78,17 @@ fn main() {
                 step(&mut harness);
                 std::thread::sleep(std::time::Duration::from_millis(16));
             }
+        } else if let Some(p) = l.get("tap").and_then(|v| v.as_array()) {
+            // A phone tap at [x, y] points: pressed for a few frames, then released.
+            let at = egui::pos2(p.first().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32, p.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32);
+            let button =
+                |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+            harness.input_mut().events.push(egui::Event::PointerMoved(at));
+            step(&mut harness);
+            harness.input_mut().events.push(button(true));
+            step_n(&mut harness, 3);
+            harness.input_mut().events.push(button(false));
+            step_n(&mut harness, 6);
         } else if let Some(p) = l.get("longPress").and_then(|v| v.as_array()) {
             // A phone long press at [x, y] points: the press is held about 0.7 s, then released.
             let at = egui::pos2(p.first().and_then(|v| v.as_f64()).unwrap_or(0.0) as f32, p.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32);

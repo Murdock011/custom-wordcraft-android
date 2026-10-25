@@ -1567,8 +1567,9 @@ fn row_chevron(id: &str) -> bool {
 
 /// A Material list item: 48 pt (the Android minimum touch target; was 56 pt), an icon, the label
 /// at 16 pt, a chevron for rows that open more, and a state layer on hover and press.
-fn list_row(ui: &mut Ui, m: Md, label: &str, icon: &str, chevron: bool) -> egui::Response {
+pub(crate) fn list_row(ui: &mut Ui, m: Md, label: &str, icon: &str, chevron: bool) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), LIST_ROW_H), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, crate::tl!(label)));
     paint_state(ui, r, 0, m.on_surface, &resp);
     let mid = r.center().y;
     icons::paint(ui.painter(), Rect::from_center_size(Pos2::new(r.left() + 36.0, mid), vec2(24.0, 24.0)), icon, m.on_surface_variant, m.primary);
