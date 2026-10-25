@@ -177,3 +177,18 @@ pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nati
     ime::INSET_LEFT.store(left, Ordering::Relaxed);
     ime::INSET_TOP.store(top, Ordering::Relaxed);
 }
+
+/// The next Read Aloud request for `TextToSpeech` (see `speech::take_request`); empty when there is none.
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeTakeSpeech<'local>(mut env: EnvUnowned<'local>, _this: JObject<'local>) -> JString<'local> {
+    env.with_env(|env| env.new_string(crate::speech::take_request())).resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// A sentence ended: `kind` 1 done, 2 failed with `msg` (see `speech::event`).
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeSpeechEvent<'local>(mut env: EnvUnowned<'local>, _this: JObject<'local>, id: jlong, kind: jint, msg: JString<'local>) {
+    let msg: String = env.with_env(|env| msg.try_to_string(env)).resolve::<jni::errors::ThrowRuntimeExAndDefault>();
+    crate::speech::event(id as u64, kind, msg);
+}

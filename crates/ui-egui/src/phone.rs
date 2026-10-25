@@ -286,6 +286,7 @@ fn rows(tab: usize) -> &'static [(&'static str, &'static str)] {
             ("Show Comments", "review.comments"),
             ("Next Comment", "review.nextComment"),
             ("Previous Comment", "review.previousComment"),
+            ("Read Aloud", "review.readAloud"),
         ],
         Some("Draw") => &[
             ("Pen", "draw.pen"),

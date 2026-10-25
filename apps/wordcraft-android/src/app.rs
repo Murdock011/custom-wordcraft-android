@@ -40,7 +40,9 @@ pub struct Shell {
 
 impl Shell {
     pub fn new() -> Self {
-        let session = Session::new(wordcraft_engine::sample::sample_document());
+        let mut session = Session::new(wordcraft_engine::sample::sample_document());
+        // Read Aloud speaks through Android's TextToSpeech (`speech.rs`, MainActivity.kt), not a program.
+        session.read_aloud.use_host(std::sync::Arc::new(crate::speech::AndroidSpeech));
         let saves = AsyncSaves::default();
         let inbox = Inbox::default();
         let services = Services {

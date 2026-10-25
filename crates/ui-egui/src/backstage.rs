@@ -312,6 +312,10 @@ fn recovery_page(app: &mut WordApp, ui: &mut Ui) {
         ui.label(tl!("No recovery copies."));
     }
     let busy = app.session.recovery_busy();
+    // On the phone every button here is a 48 pt touch target (Android's minimum); desktop keeps its size.
+    if crate::phone::active(ui.ctx()) {
+        ui.style_mut().spacing.interact_size.y = crate::phone::TOUCH_H;
+    }
     let actions = |app: &mut WordApp, ui: &mut Ui, id: &str| {
         ui.add_enabled_ui(!busy, |ui| {
             ui.horizontal(|ui| {
@@ -1190,6 +1194,7 @@ mod tests {
         h.run_steps(4);
         let restore = h.get_by_label("Restore").rect();
         assert!(restore.max.x <= 400.0, "Restore is within the 400 pt phone width: {restore:?}");
+        assert!(restore.height() >= crate::phone::TOUCH_H, "Restore is a 48 pt touch target on the phone: {restore:?}");
         drop(h);
         let _ = std::fs::remove_dir_all(&root);
     }

@@ -16,6 +16,10 @@
 //! / `spd-say` (Linux, BSD) or the Windows speech synthesizer (PowerShell) for the current
 //! sentence, and moves on when it finishes. Commands only change the shared state and wake the
 //! worker, which stops the running sentence when the state changed under it.
+//!
+//! A host with its own speech (Android's `TextToSpeech`) plugs in through [`SpeechHost`] instead
+//! of a program: the same worker and queue, with the host starting, polling and stopping each
+//! sentence.
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 
@@ -491,6 +495,30 @@ pub enum Backend {
     Hold,
     /// Silent; every sentence finishes at once (tests).
     Instant,
+    /// The host's own speech ([`SpeechHost`], set with [`ReadAloud::use_host`]).
+    Host,
+}
+
+/// Speech the host supplies. The worker thread calls it: `speak` starts one sentence and returns
+/// an id, `poll` says how that sentence is going, and `stop` ends whatever is being spoken. The
+/// calls must not block; the host answers from its own state.
+pub trait SpeechHost: Send + Sync {
+    /// Start `text` in `lang` (a BCP 47 tag, or `None` for the default voice) at `rate` (1.0 is
+    /// normal). `Err` says why speech can't start, as a sentence for the player to show.
+    fn speak(&self, text: &str, lang: Option<&str>, rate: f32) -> Result<u64, String>;
+    /// How the sentence with this id is going.
+    fn poll(&self, id: u64) -> HostSpeech;
+    /// Stop speaking.
+    fn stop(&self);
+}
+
+/// How a sentence the host is speaking has gone.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HostSpeech {
+    Speaking,
+    Done,
+    /// Speech failed; the text says why, as a sentence.
+    Failed(String),
 }
 
 struct Shared {
@@ -514,6 +542,8 @@ pub struct ReadAloud {
     pub skip_citations: bool,
     /// The player window is open (it stays open after the last sentence until closed).
     pub open: bool,
+    /// The host's speech, used by [`Backend::Host`].
+    host: Option<Arc<dyn SpeechHost>>,
 }
 
 impl Default for ReadAloud {
@@ -527,6 +557,7 @@ impl Default for ReadAloud {
             backend: if off { Backend::Hold } else { Backend::System },
             skip_citations: true,
             open: false,
+            host: None,
         }
     }
 }
@@ -536,6 +567,15 @@ fn lock(m: &Mutex<Shared>) -> MutexGuard<'_, Shared> {
 }
 
 impl ReadAloud {
+    /// Speak through the host's speech instead of a system program. Keeps `Hold` (silence, as
+    /// `WORDCRAFT_SPEECH=off` asks for) as it is.
+    pub fn use_host(&mut self, host: Arc<dyn SpeechHost>) {
+        if self.backend == Backend::System {
+            self.backend = Backend::Host;
+            self.host = Some(host);
+        }
+    }
+
     /// Change the shared state, stop the current sentence and wake the worker.
     fn change(&mut self, f: impl FnOnce(&mut Shared)) {
         {
@@ -659,7 +699,8 @@ impl ReadAloud {
         s.running = true;
         let shared = Arc::clone(&self.shared);
         let backend = self.backend;
-        if let Err(e) = std::thread::Builder::new().name("read-aloud".into()).spawn(move || worker(&shared, backend)) {
+        let host = self.host.clone();
+        if let Err(e) = std::thread::Builder::new().name("read-aloud".into()).spawn(move || worker(&shared, backend, host)) {
             s.running = false;
             s.state = State::Stopped;
             s.error = Some(format!("couldn't start Read Aloud: {e}"));
@@ -686,7 +727,7 @@ enum Spoken {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn worker(shared: &(Mutex<Shared>, Condvar), backend: Backend) {
+fn worker(shared: &(Mutex<Shared>, Condvar), backend: Backend, host: Option<Arc<dyn SpeechHost>>) {
     let (m, cv) = shared;
     loop {
         let (text, lang, generation, rate) = {
@@ -710,6 +751,10 @@ fn worker(shared: &(Mutex<Shared>, Condvar), backend: Backend) {
         let changed = || lock(m).generation != generation;
         let outcome = match backend {
             Backend::System => speak(&text, lang.as_deref(), rate, &changed),
+            Backend::Host => match host.as_deref() {
+                Some(h) => speak_host(h, &text, lang.as_deref(), rate, &changed),
+                None => Spoken::Failed("Read Aloud couldn't start the speech program: no speech on this device".into()),
+            },
             Backend::Instant => Spoken::Done,
             Backend::Hold => {
                 let mut s = lock(m);
@@ -791,6 +836,27 @@ fn windows_speech(system_root: Option<std::ffi::OsString>, rate: f32, lang: Opti
         // PowerShell is a console program: without this, every sentence flashes a console window
         // over the document (#1122).
         creation_flags: CREATE_NO_WINDOW,
+    }
+}
+
+/// Speak one sentence through the host, stopping early (and telling the host to stop) when `changed()`.
+#[cfg(not(target_arch = "wasm32"))]
+fn speak_host(host: &dyn SpeechHost, text: &str, lang: Option<&str>, rate: f32, changed: &dyn Fn() -> bool) -> Spoken {
+    let id = match host.speak(text, lang, rate) {
+        Ok(id) => id,
+        Err(e) => return Spoken::Failed(format!("Read Aloud couldn't start the speech program: {e}")),
+    };
+    loop {
+        match host.poll(id) {
+            HostSpeech::Done => return Spoken::Done,
+            HostSpeech::Failed(e) => return Spoken::Failed(e),
+            HostSpeech::Speaking => {}
+        }
+        if changed() {
+            host.stop();
+            return Spoken::Interrupted;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(30));
     }
 }
 
@@ -1005,6 +1071,107 @@ mod tests {
         r.play_pause();
         assert_eq!(r.progress().0, 0);
         assert_eq!(r.state(), State::Playing);
+    }
+
+    /// A host that finishes each sentence on its first poll (or fails with `fail`), and records
+    /// what it was asked to say and how often it was stopped.
+    #[derive(Default)]
+    struct FakeHost {
+        fail: Option<String>,
+        said: std::sync::Mutex<Vec<(String, Option<String>, f32)>>,
+        stops: std::sync::atomic::AtomicUsize,
+        hold: bool,
+    }
+
+    impl SpeechHost for FakeHost {
+        fn speak(&self, text: &str, lang: Option<&str>, rate: f32) -> Result<u64, String> {
+            if let Some(e) = &self.fail {
+                return Err(e.clone());
+            }
+            let mut said = self.said.lock().unwrap_or_else(PoisonError::into_inner);
+            said.push((text.to_string(), lang.map(str::to_string), rate));
+            Ok(said.len() as u64)
+        }
+        fn poll(&self, _id: u64) -> HostSpeech {
+            if self.hold { HostSpeech::Speaking } else { HostSpeech::Done }
+        }
+        fn stop(&self) {
+            self.stops.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    fn wait_stopped(r: &ReadAloud) {
+        for _ in 0..400 {
+            if r.state() == State::Stopped {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn host_speech_reads_each_sentence_in_its_language_and_rate() {
+        let doc = Document::from_text("One. Привет мир. Three.");
+        let host = Arc::new(FakeHost::default());
+        let mut r = ReadAloud::default();
+        r.backend = Backend::System;
+        r.use_host(host.clone());
+        assert_eq!(r.backend, Backend::Host);
+        r.set_rate(1.5);
+        r.start(sentences(&doc, &Pos::body(0, 0), None, true));
+        wait_stopped(&r);
+        assert_eq!(r.progress(), (3, 3));
+        assert!(r.error().is_none());
+        let said = host.said.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        assert_eq!(said.iter().map(|s| s.0.as_str()).collect::<Vec<_>>(), ["One.", "Привет мир.", "Three."]);
+        assert!(said.iter().all(|s| s.2 == 1.5), "{said:?}");
+        // Latin text keeps the document's tag; Cyrillic gets its own language.
+        assert_eq!(said.iter().map(|s| s.1.as_deref()).collect::<Vec<_>>(), [Some("en-US"), Some("ru"), Some("en-US")]);
+        assert_eq!(host.stops.load(std::sync::atomic::Ordering::SeqCst), 0, "a finished sentence is not stopped");
+    }
+
+    #[test]
+    fn host_failure_shows_the_error_and_stops() {
+        let doc = Document::from_text("One. Two.");
+        let host = Arc::new(FakeHost { fail: Some("Text-to-speech isn't available on this device.".into()), ..Default::default() });
+        let mut r = ReadAloud::default();
+        r.backend = Backend::System;
+        r.use_host(host);
+        r.start(sentences(&doc, &Pos::body(0, 0), None, true));
+        wait_stopped(&r);
+        assert_eq!(r.state(), State::Stopped);
+        assert_eq!(r.error().as_deref(), Some("Read Aloud couldn't start the speech program: Text-to-speech isn't available on this device."));
+    }
+
+    #[test]
+    fn host_stop_interrupts_the_sentence_and_tells_the_host() {
+        let doc = Document::from_text("One. Two.");
+        let host = Arc::new(FakeHost { hold: true, ..Default::default() });
+        let mut r = ReadAloud::default();
+        r.backend = Backend::System;
+        r.use_host(host.clone());
+        r.start(sentences(&doc, &Pos::body(0, 0), None, true));
+        for _ in 0..200 {
+            if !host.said.lock().unwrap_or_else(PoisonError::into_inner).is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        r.stop();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert_eq!(host.stops.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(r.progress(), (0, 2), "a stopped sentence is not counted as read");
+        assert_eq!(host.said.lock().unwrap_or_else(PoisonError::into_inner).len(), 1);
+    }
+
+    #[test]
+    fn hold_stays_silent_when_a_host_is_offered() {
+        let host = Arc::new(FakeHost::default());
+        let mut r = ReadAloud::default();
+        assert_eq!(r.backend, Backend::Hold, "tests start silent");
+        r.use_host(host.clone());
+        assert_eq!(r.backend, Backend::Hold);
+        assert!(host.said.lock().unwrap_or_else(PoisonError::into_inner).is_empty());
     }
 
     #[test]

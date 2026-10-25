@@ -895,3 +895,47 @@ Addendum (Update 32, second pass): phone Options.
 7. Mockups: `options-phone-list.png` (the category list) and `options-phone-general.png` (General, with "Selection menu: Icons / List" fully visible). Both checked by eye: nothing is cut off on the right.
 `ui_shot` takes `{"tap": [x, y]}` (a phone point) for these screens.
 Full `cargo test -p wordcraft-ui-egui`: 865 + 10 pass. `cargo xtask wasm`: ok.
+
+## Update 33: Read Aloud on Android, device checks (2026-10-25)
+
+### 1. Read Aloud through TextToSpeech
+Design: the engine's speech backend seam, not a new player. `speech.rs` gets `Backend::Host`, a `SpeechHost` trait (`speak`, `poll`, `stop`) and `ReadAloud::use_host()`. The worker thread runs the same loop: it asks the host to start a sentence, polls until it is done, and on pause, skip, stop or close it calls `stop`. `use_host` only switches from the system program (`System`), so `WORDCRAFT_SPEECH=off` (`Hold`) stays silent. Desktop and web are unchanged.
+Android side follows `clip.rs`, so Rust never calls Kotlin: `apps/wordcraft-android/src/speech.rs` queues requests, Kotlin takes them in the existing 150 ms poll (`drainSpeech`) and speaks with `TextToSpeech`. `UtteranceProgressListener.onDone` / `onError` call back through `nativeSpeechEvent` (JNI) to end each sentence. Language is the sentence's tag (`setLanguage`; a missing voice keeps the default), rate is the player's speed (`setSpeechRate`). TTS is created in `onCreate`. If it did not start, or a sentence cannot be spoken, the player shows "Read Aloud couldn't start the speech program: Text-to-speech isn't available on this device." No crash path.
+Choice: the sentence result is polled from a status value, not a blocking JNI call, so the worker never waits on the UI thread. Ceiling: a poll is 150 ms, so a sentence boundary can lag by up to that. Pause and skip still work because the worker stops the sentence on the next check.
+
+Files:
+- `crates/engine/src/speech.rs`: `Backend::Host`, `SpeechHost`, `HostSpeech`, `ReadAloud::use_host`, `speak_host`, `host` field passed to the worker; 4 tests (`host_speech_reads_each_sentence_in_its_language_and_rate`, `host_failure_shows_the_error_and_stops`, `host_stop_interrupts_the_sentence_and_tells_the_host`, `hold_stays_silent_when_a_host_is_offered`).
+- `docs/ENGINE-CHANGES.md`: one row (Read Aloud), because `crates/engine` changed.
+- `apps/wordcraft-android/src/speech.rs` (new): queue, status, `take_request`, `event`, `AndroidSpeech`; test `a_sentence_is_queued_then_reported_done_or_failed`.
+- `apps/wordcraft-android/src/android.rs`: `nativeTakeSpeech`, `nativeSpeechEvent` JNI exports. `app.rs`: `session.read_aloud.use_host(...)` in `Shell::new`. `lib.rs`: `mod speech`.
+- `packaging/android-native/app/src/main/java/ai/storyteller/wordcraft/nativeapp/MainActivity.kt`: TextToSpeech, listener, `drainSpeech`, `speakSentence`, shutdown in `onDestroy`.
+- `crates/ui-egui/src/phone.rs`: one row, `("Read Aloud", "review.readAloud")` at the end of the Review tab list. Icon is the generic "more" (no speech icon was drawn; left as is).
+
+### 2. Device check, Read Aloud (emulator-5554, x86_64, Word force-stopped)
+- Opened from Search Commands and from the Review row. Play: sentence counter 1/53 then 4/53 (`r33_readaloud_play.png`); the paused screenshot shows the sentence highlighted in the body (`r33_readaloud_pause.png`).
+- logcat (`tts`): `onStart 1`, `onDone 1`, `onStart 2`, `onDone 2`, ... in order, one pair per sentence.
+- Pause: the highlight stays on the sentence, the sheet reads "Paused" (`r33_readaloud_pause.png`). Resume: `onStart 6` after the pause.
+- Stop: the sheet closes and no further `onStart` appears (`r33_readaloud_stop.png`).
+- Close (X) while speaking: `onStart` count stays at 10 over 5 seconds (`r33_close_sheet.png`).
+- Result: PASS for Play, Pause, Stop, close. Audio itself was not heard (logcat is the evidence).
+- Review row: PASS. It is at the end of the Review list, so the list has to be scrolled to reach it (`r33_review_bottom.png`, `r33_review_row.png`).
+
+### 3. Device checks
+(a) Long-press word in body: PASS. The first try (`r33_longpress.png`) hit a gap after the page had scrolled and selected nothing. The second, on "obvious" (`r33_longpress2.png`), shows the word selected, the icon selection menu above it, and the editor, not Recover.
+(b) Paragraph dialog, Left indent: PASS. The keyboard opens and typing "2" changes the field (`r33_dialog_kb.png`). Cancelled, so the document is unchanged.
+(c) File > Recover: the buttons were about 21 pt tall (`r33_recover.png` before the fix; the first capture was taken before this change). Fixed: on the phone, the recover page sets `interact_size` to `phone::TOUCH_H` (48 pt) in `recovery_page` (`crates/ui-egui/src/backstage.rs`). Desktop unchanged. After the fix the Restore and Discard buttons measure about 47 dp on the device (`r33_recover.png`). Keyboard on Recover: not open (no text field there), so nothing to hide. Restore and Discard were not pressed.
+- Observed while testing (not investigated): after a tap in the body (`r33_home_sheet.png`), "reason" showed underlined and the line after "Rent is the" broke early. It looks like an input-method composition region; not confirmed as a bug.
+
+### Tests
+- `cargo test -p wordcraft-ui-egui`: 866 passed, 0 failed, 2 ignored; integration 10 passed.
+- `cargo test -p wordcraft-engine speech`: 32 passed.
+- `cargo test -p wordcraft-android`: 23 passed.
+- `cargo test -p wordcraft-ui-egui recovery`: 6 passed (includes the new 48 pt assertion in `recovery_restore_is_on_screen_on_a_phone`).
+- `cargo xtask wasm`: ok (16 crates).
+- Clippy on wordcraft-engine: not clean to check here; the run fails on lints in other crates (wordcraft-docbin, docx, layout, fonts), not in this change.
+
+### Open items
+- Read Aloud sentence changes lag by up to one poll (150 ms).
+- The Review row uses the "more" icon.
+- The "reason" composition look above is unverified.
+- Nothing committed, nothing pushed.

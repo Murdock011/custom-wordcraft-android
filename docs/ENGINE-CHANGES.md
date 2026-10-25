@@ -32,6 +32,7 @@ listed one by one; they only apply in the phone layout, except for those listed 
 | Draw | `crates/engine/src/cmd/draw.rs`, `crates/engine/src/cmd/objects.rs` | Done (`draw.select`) clears the lasso and marks the ink object next to the caret as dismissed, so it no longer counts as selected until the caret moves. | After drawing and tapping Done, a drag moved the stroke instead of selecting text. |
 | Review | `crates/engine/src/cmd/review.rs` (`list_comments`) | Each comment in the list also reports `anchorText`: the text it is attached to, within one paragraph, at most 200 characters. | Lets the phone's comment list show what each comment is about. Additive; existing fields are unchanged. |
 | Fonts | `crates/fonts/src/fontdb.rs` | On Android, system fonts are looked up in `/system/fonts`, `/product/fonts`, `/system_ext/fonts` and `/vendor/fonts`, through a new `android_font_dirs()`. | Android keeps its fonts there, not in the Linux paths the code used. Other platforms are unchanged. |
+| Read Aloud | `crates/engine/src/speech.rs` | New `Backend::Host`, a `SpeechHost` trait (speak, poll, stop) and `ReadAloud::use_host()`. The same worker and queue speak through the host instead of a system program. Desktop and web keep their backend; `Hold` (silence) is kept. | Android has no speech program to spawn. The Android host speaks through `TextToSpeech`, so the player works there without any change to desktop behaviour. |
 
 ## No behaviour change
 
