@@ -14,8 +14,8 @@ android {
         applicationId = "ai.storyteller.wordcraft.native"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.10.0-native-spike"
+        versionCode = 2
+        versionName = "0.1.5"
     }
 
     buildTypes {
