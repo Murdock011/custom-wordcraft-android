@@ -5,11 +5,15 @@ This fork is a UI redesign for Android on top of the WordCraft engine (see the
 anyone can see exactly where it departs from the original engine. All of these were written by AI
 coding agents, like the rest of the fork.
 
-Baseline: [storytold/wordcraft](https://github.com/storytold/wordcraft) at commit `7086f8a`, which
-is the first commit of this repository. To see the code itself:
+Baseline: this fork branches from [storytold/wordcraft](https://github.com/storytold/wordcraft)
+at commit `7086f8a` and keeps its full history, so later upstream versions can be merged in (see
+[UPDATING.md](UPDATING.md)). To see the code itself, against whichever upstream version was last
+merged:
 
 ```sh
-git diff $(git rev-list --max-parents=0 HEAD) HEAD -- crates ':!crates/ui-egui' Cargo.toml
+git remote add upstream https://github.com/storytold/wordcraft.git   # once
+git fetch upstream
+git diff $(git merge-base HEAD upstream/main) HEAD -- crates ':!crates/ui-egui' Cargo.toml
 ```
 
 "Engine" here means every crate except `crates/ui-egui` (the interface) and `apps/` (the
