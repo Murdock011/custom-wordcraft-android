@@ -939,3 +939,24 @@ Files:
 - The Review row uses the "more" icon.
 - The "reason" composition look above is unverified.
 - Nothing committed, nothing pushed.
+## Update 34: Touch-sized Options pages (2026-10-25)
+Scope: every control on every phone File › Options category (General, Display, Proofing, Save, Language, Accessibility, Advanced, Agents). Desktop unchanged. Device not used this round; checked by the headless test and `ui_shot` renders at 412x915 pt, scale 2.625.
+
+What changed:
+- The category page's Ui gets `phone::touch_style` once (`options.rs` `phone_page`, inside `ui.scope`): 48 pt `interact_size` for checkboxes, radio buttons, combo boxes, buttons and sliders, 12 pt button padding, 16 pt text. `touch_style` is now `pub(crate)`.
+- Text fields (User name, Initials, Dictionaries folder, New word, User templates) use `phone::touch_edit`, 48 pt tall. `touch_edit` now also centres the text vertically (`vertical_align(Center)`): before, the text sat at the top of the taller box. This also applies to the dialog text fields on the phone (same helper).
+- Custom dictionary Remove: a 48 pt button on the phone (`row_button`); desktop keeps `small_button`.
+- Advanced › Display: on the phone the label-and-control grid stacks each label above its control (one column). Before, the Measurement units and Region combos ran off the right edge and pushed Apply off-screen.
+- Phone widths: combo boxes and text fields that were fixed 200-320 pt are capped to the row (`field_width`), so a button beside them wraps. The Read Aloud speed slider gets a usable length on the phone (`slider_width`).
+
+Tests:
+- `options::phone_tests::every_phone_category_control_is_48_pt_tall`: for each category, every CheckBox, RadioButton, ComboBox, Button, TextInput, SpinButton and Slider is at least 47.9 pt tall and stays inside the 412 pt screen. This test caught the Advanced overflow.
+- `cargo test -p wordcraft-ui-egui`: 867 passed, 0 failed, 2 ignored; integration 10 passed.
+- `cargo xtask wasm`: ok (16 crates).
+- Clippy: not run.
+
+Screenshots (`notes/mockups/`, one per category): `options-touch-general.png`, `options-touch-display.png`, `options-touch-proofing.png`, `options-touch-save.png`, `options-touch-language.png`, `options-touch-accessibility.png`, `options-touch-advanced.png`, `options-touch-agents.png`. Compare with `options-phone-general.png` (checkbox rows about 28 pt tall there, now 48 pt). Checked by eye: nothing clipped on Display, Proofing, Save, Accessibility, Advanced or Agents. Known residual: on Language the page background shows a thin strip past the right edge of the mockup frame; the Interface language combo itself is fully on screen.
+
+Known gaps:
+- Not run on the emulator this round.
+- The Read Aloud speed slider rail is very faint on the phone (theme colour, not a size issue); left as is.

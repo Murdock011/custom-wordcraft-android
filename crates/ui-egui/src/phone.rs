@@ -1623,7 +1623,7 @@ pub(crate) fn footer(ctx: &Context) -> Option<Rect> {
 /// Touch sizing for a dialog's controls, set once on the sheet's Ui and inherited by its children:
 /// a 48 pt minimum height for buttons, checkboxes, radio buttons, combo boxes and sliders
 /// (`interact_size`), taller padding for text fields, and 16 pt text.
-fn touch_style(ui: &mut Ui) {
+pub(crate) fn touch_style(ui: &mut Ui) {
     let style = ui.style_mut();
     style.spacing.interact_size.y = TOUCH_H;
     style.spacing.button_padding = vec2(12.0, 12.0);
@@ -1635,7 +1635,7 @@ fn touch_style(ui: &mut Ui) {
 /// A single-line text field: 48 pt tall on the phone, where Android asks for that touch target
 /// (egui's TextEdit ignores `interact_size`, so the height is its `min_size`). Unchanged on desktop.
 pub(crate) fn touch_edit<'t>(ui: &Ui, edit: egui::TextEdit<'t>) -> egui::TextEdit<'t> {
-    if active(ui.ctx()) { edit.min_size(vec2(0.0, TOUCH_H)) } else { edit }
+    if active(ui.ctx()) { edit.min_size(vec2(0.0, TOUCH_H)).vertical_align(egui::Align::Center) } else { edit }
 }
 
 /// Shows a dialog as a bottom sheet on the phone: the full width of the screen, a title row with a
