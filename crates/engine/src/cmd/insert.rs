@@ -1,5 +1,7 @@
 //! Insert tab: pages, tables, pictures, shapes, links, bookmarks, headers/footers, text, symbols.
 
+use std::sync::Arc;
+
 use serde_json::{Value, json};
 use wordcraft_doc::para::{Float, InlineObject, ShapeKind, Wrap};
 use wordcraft_doc::props::{Align, CharProps, Rgb, TabAlign, TabStop, TextColor};
@@ -259,8 +261,19 @@ fn place_picture(s: &mut Session, bytes: Vec<u8>, width: Option<f32>, alt: &str)
         return Err(CmdError::Failed("not a supported image (PNG, JPEG, GIF, WebP, BMP, WMF, EMF)".into()));
     };
     let key = s.doc.add_media(bytes, ext);
-    // Fitted to the text width.
-    let max_w = s.doc.sections().first().map(|(_, sp)| sp.text_width()).unwrap_or(468.0);
+    // Fitted to the text width. Read and Web Layout reflow the text to the window (18 pt margins
+    // each side), so a picture there fits that column, not the printed page.
+    let reflowed = if s.view.read_mode {
+        Some(s.view.read_width)
+    } else if s.view.mode == wordcraft_layout::ViewMode::Web {
+        Some(s.view.web_width)
+    } else {
+        None
+    };
+    let max_w = match reflowed {
+        Some(w) if w.is_finite() && w > 36.0 => w - 36.0,
+        _ => s.doc.sections().first().map(|(_, sp)| sp.text_width()).unwrap_or(468.0),
+    };
     let (mut w, mut h) = (natural_w, natural_h);
     if let Some(want) = width {
         let k = want.max(4.0) / w.max(1.0);
@@ -582,6 +595,25 @@ fn hf_part(s: &mut Session, header: bool) -> u32 {
     let id = s.doc.add_part(if header { PartKind::Header } else { PartKind::Footer }, vec![para_block(Paragraph::new().styled(style))]);
     let sect = s.doc.section_mut(block);
     *slot_of(slot, if header { &mut sect.headers } else { &mut sect.footers }) = Some(id);
+    // Word's sections link to the one before them, so one footer or header covers every section
+    // that has none of its own (otherwise a page number inserted after a section break shows only there).
+    for b in s.doc.body.iter_mut() {
+        if let Block::Para(p) = Arc::make_mut(b)
+            && let Some(sect) = p.section.as_mut()
+        {
+            let set = if header { &mut sect.headers } else { &mut sect.footers };
+            let cell = slot_of(slot, set);
+            if cell.is_none() {
+                *cell = Some(id);
+            }
+        }
+    }
+    let last = &mut s.doc.last_section;
+    let set = if header { &mut last.headers } else { &mut last.footers };
+    let cell = slot_of(slot, set);
+    if cell.is_none() {
+        *cell = Some(id);
+    }
     id
 }
 
@@ -1272,6 +1304,24 @@ mod tests {
         let p = s.doc.para(StoryRef::Body, &Path::top(0)).unwrap();
         assert_eq!(p.props_of_char(1).sym_font, None, "w:sym can't hold it");
         assert_eq!(p.props_of_char(1).font.as_deref(), Some("Wingdings"));
+    }
+
+    #[test]
+    fn page_number_reaches_every_section() {
+        // Word links a section's footer to the one before it, so a page number inserted after a
+        // section break must show in every section, not only the one the caret is in.
+        let mut s = Session::new(wordcraft_doc::Document::from_text("one"));
+        s.run("caret.docEnd", &json!({})).unwrap();
+        s.run("layout.break", &json!({"kind": "nextPage"})).unwrap();
+        s.run("text.insert", &json!({"text": "two"})).unwrap();
+        s.run("layout.break", &json!({"kind": "continuous"})).unwrap();
+        s.run("text.insert", &json!({"text": "three"})).unwrap();
+        s.run("insert.pageNumber", &json!({"position": "bottom"})).unwrap();
+        let sections = s.doc.sections();
+        assert!(sections.len() >= 3, "two breaks make three sections");
+        for (_, sect) in sections {
+            assert!(sect.footers.default.is_some(), "every section has the footer");
+        }
     }
 
     #[test]

@@ -13,6 +13,7 @@ const DOC_EXTS: &[&str] = &["docx", "docm", "dotx", "dotm", "doc", "dot", "odt",
 const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "wmf", "emf"];
 const RECIPIENT_EXTS: &[&str] = wordcraft_engine::cmd::mailings::RECIPIENT_EXTENSIONS;
 mod font_store;
+mod text_input;
 const CANVAS_ID: &str = "wordcraft_canvas";
 const LOADING_ID: &str = "wordcraft_loading";
 
@@ -38,6 +39,16 @@ pub fn start() {
         {
             create.instance_descriptor.backends = eframe::wgpu::Backends::GL;
         }
+        // Ask the device for the limits it has, not the default 8192-pixel textures: some WebGL2
+        // devices cap textures lower (the Android emulator's GPU caps them at 4096).
+        if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {
+            let base = create.device_descriptor.clone();
+            create.device_descriptor = std::sync::Arc::new(move |adapter| {
+                let mut desc = base(adapter);
+                desc.required_limits = adapter.limits();
+                desc
+            });
+        }
         let result = eframe::WebRunner::new()
             .start(
                 canvas,
@@ -52,6 +63,9 @@ pub fn start() {
                     let pasted: Inbox = Inbox::default();
                     if let Err(e) = listen_for_pasted_pictures(pasted.clone(), cc.egui_ctx.clone()) {
                         log::error!("pasting pictures is unavailable: {e}");
+                    }
+                    if let Err(e) = text_input::listen(CANVAS_ID, cc.egui_ctx.clone()) {
+                        log::error!("typing through the input method is unavailable: {e}");
                     }
                     // The browser's locale picks the new document's paper, the units and the
                     // decimal separator (#838).
@@ -116,6 +130,7 @@ fn stored_prefs() -> Option<String> {
 
 impl eframe::App for WebShell {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        text_input::drain(ctx);
         let dropped = ctx.input_mut(|i| std::mem::take(&mut i.raw.dropped_files));
         for f in dropped {
             let inbox = self.inbox.clone();
@@ -154,7 +169,22 @@ impl eframe::App for WebShell {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        set_back_flag(self.app.can_go_back(ui.ctx()));
         self.app.ui(ui);
+    }
+}
+
+/// Publishes whether Android Back has something to close, as `window.wcCanGoBack`, for the
+/// Android shell (`MainActivity`). Written only when it changes.
+fn set_back_flag(on: bool) {
+    thread_local! {
+        static LAST: Cell<Option<bool>> = const { Cell::new(None) };
+    }
+    if LAST.with(|l| l.replace(Some(on))) == Some(on) {
+        return;
+    }
+    if let Some(w) = web_sys::window() {
+        let _ = js_sys::Reflect::set(&w, &wasm_bindgen::JsValue::from_str("wcCanGoBack"), &wasm_bindgen::JsValue::from_bool(on));
     }
 }
 
@@ -246,7 +276,7 @@ fn services(inbox: Inbox, ctx: egui::Context, dirty: Rc<Cell<bool>>, saves: Asyn
         // Exports ask for a name; the browser decides where the download goes.
         pick_save: Some(Box::new(|name: &str| Some(name.to_string()))),
         async_saves: Some(saves.clone()),
-        download: Some(Box::new(move |path: &str, bytes: &[u8]| download(&saves, &save_ctx, path, bytes))),
+        download: Some(Box::new(move |path: &str, bytes: &[u8], save_as: bool| download(&saves, &save_ctx, path, bytes, save_as))),
         print: Some(Box::new(print_pdf)),
         inbox: Some(inbox),
         on_dirty: Some(Box::new(move |d| dirty.set(d))),
@@ -390,9 +420,14 @@ fn guard_unload(dirty: Rc<Cell<bool>>, saves: AsyncSaves) -> Result<(), String> 
 }
 
 /// Trigger a browser save dialog or download of `bytes` named after the last component of `path`.
-fn download(saves: &AsyncSaves, ctx: &egui::Context, path: &str, bytes: &[u8]) -> Result<(), String> {
+fn download(saves: &AsyncSaves, ctx: &egui::Context, path: &str, bytes: &[u8], save_as: bool) -> Result<(), String> {
     let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "document".into());
     let window = web_sys::window().ok_or("no window")?;
+
+    // The Android shell saves through its own bridge (see MainActivity.kt) and reports back.
+    if js_sys::Reflect::has(&window, &wasm_bindgen::JsValue::from_str("AndroidSave")).unwrap_or(false) {
+        return android_save(saves, ctx, &window, &name, bytes, save_as);
+    }
 
     // On browsers supporting the File System Access API (Chromium: Chrome, Edge, etc.),
     // `showSaveFilePicker` lets the user choose the save location and filename natively.
@@ -408,7 +443,54 @@ fn download(saves: &AsyncSaves, ctx: &egui::Context, path: &str, bytes: &[u8]) -
     }
 
     // Fallback for browsers without showSaveFilePicker (e.g. Firefox, Safari):
-    trigger_anchor_download(&window, &name, bytes)
+    trigger_anchor_download(&window, &name, bytes, save_as)
+}
+
+thread_local! {
+    /// Android saves waiting for the shell's answer: (file name, ticket), oldest first.
+    static ANDROID_SAVES: std::cell::RefCell<Vec<(String, u64)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Saves through the Android shell. The shell's bridge writes the file (Save As always asks where)
+/// and calls `window.wcSaveResult(name, status, error)`, which finishes this save's ticket, so the
+/// document only counts as saved once the write really happened.
+fn android_save(saves: &AsyncSaves, ctx: &egui::Context, window: &web_sys::Window, name: &str, bytes: &[u8], save_as: bool) -> Result<(), String> {
+    if !js_sys::Reflect::has(window, &wasm_bindgen::JsValue::from_str("wcSaveResult")).unwrap_or(false) {
+        let saves_cb = saves.clone();
+        let ctx_cb = ctx.clone();
+        let callback = wasm_bindgen::closure::Closure::<dyn Fn(wasm_bindgen::JsValue, wasm_bindgen::JsValue, wasm_bindgen::JsValue)>::new(
+            move |name: wasm_bindgen::JsValue, status: wasm_bindgen::JsValue, error: wasm_bindgen::JsValue| {
+                let name = name.as_string().unwrap_or_default();
+                let status = status.as_string().unwrap_or_default();
+                let error = error.as_string().unwrap_or_default();
+                let ticket = ANDROID_SAVES.with(|s| {
+                    let mut s = s.borrow_mut();
+                    s.iter().position(|(n, _)| *n == name).map(|i| s.remove(i).1)
+                });
+                let Some(ticket) = ticket else {
+                    log::warn!("save result for {name} with no save waiting");
+                    return;
+                };
+                let outcome = match status.as_str() {
+                    "saved" => SaveOutcome::Saved,
+                    "cancelled" => SaveOutcome::Cancelled,
+                    _ => SaveOutcome::Failed(if error.is_empty() { "unknown error".to_string() } else { error }),
+                };
+                saves_cb.finish(ticket, outcome);
+                ctx_cb.request_repaint();
+            },
+        );
+        js_sys::Reflect::set(window, &wasm_bindgen::JsValue::from_str("wcSaveResult"), callback.as_ref()).map_err(|e| format!("{e:?}"))?;
+        callback.forget();
+    }
+    let ticket = saves.start();
+    ANDROID_SAVES.with(|s| s.borrow_mut().push((name.to_string(), ticket)));
+    if let Err(e) = trigger_anchor_download(window, name, bytes, save_as) {
+        // Report the failure through the same path as a shell failure, not as a second error.
+        ANDROID_SAVES.with(|s| s.borrow_mut().retain(|(_, t)| *t != ticket));
+        saves.finish(ticket, SaveOutcome::Failed(e));
+    }
+    Ok(())
 }
 
 fn trigger_save_file_picker(
@@ -478,7 +560,7 @@ fn trigger_save_file_picker(
                 // A browser can expose the picker but reject its promise (for example in
                 // a cross-origin iframe). Use the same download path as an absent API;
                 // cancelling a picker must never start an unwanted download (#1246).
-                crate::save_fallback::picker_rejected(&err_name, || trigger_anchor_download(&window, &name, &bytes_vec))
+                crate::save_fallback::picker_rejected(&err_name, || trigger_anchor_download(&window, &name, &bytes_vec, false))
             }
         };
         saves.finish(ticket, outcome);
@@ -513,7 +595,7 @@ async fn write_file_handle(handle: &wasm_bindgen::JsValue, bytes: &[u8]) -> Resu
     Ok(())
 }
 
-fn trigger_anchor_download(window: &web_sys::Window, name: &str, bytes: &[u8]) -> Result<(), String> {
+fn trigger_anchor_download(window: &web_sys::Window, name: &str, bytes: &[u8], save_as: bool) -> Result<(), String> {
     let js = |e: wasm_bindgen::JsValue| format!("{e:?}");
     let document = window.document().ok_or("no document")?;
     let parts = js_sys::Array::of1(&js_sys::Uint8Array::from(bytes));
@@ -524,6 +606,8 @@ fn trigger_anchor_download(window: &web_sys::Window, name: &str, bytes: &[u8]) -
     let a: web_sys::HtmlAnchorElement = document.create_element("a").map_err(js)?.dyn_into().map_err(|_| "not an anchor".to_string())?;
     a.set_href(&url);
     a.set_download(name);
+    // The Android shell reads this to tell Save from Save As.
+    a.set_attribute("data-save-as", if save_as { "true" } else { "false" }).map_err(js)?;
     a.style().set_property("display", "none").map_err(js)?;
     let body = document.body().ok_or("no body")?;
     body.append_child(&a).map_err(js)?;

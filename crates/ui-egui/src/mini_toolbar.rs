@@ -71,7 +71,14 @@ pub fn visible_anchor(selection_rects: impl IntoIterator<Item = Rect>, clip: Rec
 /// Where the bar sits for a selection line and viewport; `None` for degenerate inputs (NaN
 /// rects must never reach egui). Pure geometry, unit tested without a window.
 pub fn anchor_rect(selection_top: f32, selection_left: f32, viewport: Rect) -> Option<Rect> {
-    if !selection_top.is_finite() || !selection_left.is_finite() || !viewport.is_finite() || !viewport.is_positive() {
+    anchor_line(selection_top, selection_top, selection_left, viewport)
+}
+
+/// [`anchor_rect`] for a selection line spanning `selection_top..selection_bottom`: the bar goes
+/// above the line or below its bottom edge, so it never covers the selected text.
+pub fn anchor_line(selection_top: f32, selection_bottom: f32, selection_left: f32, viewport: Rect) -> Option<Rect> {
+    if !selection_top.is_finite() || !selection_bottom.is_finite() || !selection_left.is_finite() || !viewport.is_finite() || !viewport.is_positive()
+    {
         return None;
     }
     // Horizontal: centre on the selection's start (a few points in), clamped inside the viewport.
@@ -80,7 +87,7 @@ pub fn anchor_rect(selection_top: f32, selection_left: f32, viewport: Rect) -> O
     // Vertical: prefer above, then below. Check both viewport edges: a selection can be
     // partially scrolled out of view, so merely checking `above >= viewport.top()` is not enough.
     let above = selection_top - VGAP - BAR_H;
-    let below = selection_top + VGAP;
+    let below = selection_bottom + VGAP;
     let above_fits = above >= viewport.top() && above + BAR_H <= viewport.bottom();
     let below_fits = below >= viewport.top() && below + BAR_H <= viewport.bottom();
     let y = if above_fits {
@@ -106,6 +113,11 @@ pub fn shown_id() -> egui::Id {
 pub fn visible(app: &WordApp) -> bool {
     // Reading Mode permits text selection and copying, but never formatting controls.
     if app.session.view.read_mode {
+        return false;
+    }
+    // The phone has its own formatting bar and selection menu; this desktop bar would float over
+    // the text after a long press (Android Back then left the app instead of closing it).
+    if app.phone {
         return false;
     }
     // Never over a modal dialog or the Backstage.
@@ -167,7 +179,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context, selection: Rect, viewport: R
     if !visible(app) {
         return;
     }
-    let Some(bar) = anchor_rect(selection.min.y, selection.min.x, viewport) else { return };
+    let Some(bar) = anchor_line(selection.min.y, selection.max.y, selection.min.x, viewport) else { return };
     // The bar belongs to the page: as the selection scrolls under the ribbon (or past the status
     // bar) it slides under it with the text, and goes once none of it shows.
     let shown = bar.intersect(viewport);
@@ -203,6 +215,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context, selection: Rect, viewport: R
 pub fn context_menu_visible(app: &WordApp) -> bool {
     app.ui.mini_toolbar
         && !app.session.view.read_mode
+        && !app.phone
         && app.session.math.is_none()
         && app.session.cell_range().is_none()
         && !crate::ribbon::has_picture_selected(&app.session)
@@ -350,6 +363,18 @@ mod tests {
 
     fn vp() -> Rect {
         Rect::from_min_size(pos2(100.0, 50.0), Vec2::new(1200.0, 700.0))
+    }
+
+    #[test]
+    fn phone_layout_never_shows_the_desktop_mini_toolbar() {
+        let mut app = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Default::default());
+        app.run("text.insert", json!({"text": "Selectable text"})).unwrap();
+        app.run("select.all", json!({})).unwrap();
+        app.phone = true;
+        assert!(!visible(&app), "the phone's selection menu replaces the floating bar");
+        assert!(!context_menu_visible(&app), "nor the bar inside the context menu");
+        app.phone = false;
+        assert!(visible(&app));
     }
 
     #[test]
@@ -625,7 +650,8 @@ mod tests {
     fn context_menu_toolbar_fits_near_the_bottom_right_of_a_narrow_window() {
         use egui_kittest::kittest::Queryable;
         let mut h = bar_over("brown fox");
-        h.set_size(Vec2::new(380.0, 650.0));
+        // Narrow but desktop-sized: a window under 600 pt on its short side is a phone (phone::active).
+        h.set_size(Vec2::new(620.0, 650.0));
         steps(&mut h);
         h.state_mut().run("ui.contextMenu", json!({})).unwrap();
         steps(&mut h);

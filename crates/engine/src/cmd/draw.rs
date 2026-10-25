@@ -146,6 +146,9 @@ pub struct DrawState {
     /// Ink Replay is showing (the app plays the strokes back and turns this off when done).
     #[serde(skip)]
     pub replay: bool,
+    /// The ink object Done dismissed: a caret right next to it doesn't count as selecting it.
+    #[serde(skip)]
+    pub dismissed: Option<Pos>,
 }
 
 impl Default for DrawState {
@@ -159,6 +162,7 @@ impl Default for DrawState {
             ink_to_shape: false,
             lasso: None,
             replay: false,
+            dismissed: None,
         }
     }
 }
@@ -196,6 +200,11 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("draw.select", "Select", "Draw › Tools", |s, _| {
             s.view.draw.mode = DrawMode::Select;
+            s.view.draw.lasso = None;
+            // A caret next to ink counts as selecting it, and a stroke just drawn is left that way.
+            // Done dismisses that one object (see `objects::selected_all`); the mark clears itself
+            // once the caret moves.
+            s.view.draw.dismissed = super::objects::selected(s).map(|(pos, _)| pos);
             state(s)
         })
         .pure(),
@@ -984,6 +993,19 @@ mod tests {
         assert_eq!((s.view.draw.mode, s.view.draw.pencil.width), (super::DrawMode::Pen(InkTool::Pencil), super::MAX_WIDTH));
         s.run("draw.select", &json!({})).unwrap();
         assert_eq!(s.view.draw.mode, super::DrawMode::Select);
+    }
+
+    /// Done after a stroke: the stroke stops being selected, so a drag selects text again.
+    #[test]
+    fn done_drops_the_selection_left_by_a_stroke() {
+        let mut s = session();
+        let r = s.run("draw.stroke", &json!({"page": 0, "points": [[100, 100], [200, 100]], "width": 2, "color": "000000"})).unwrap();
+        // The caret sits next to the stroke, as it does on a blank page after drawing.
+        s.sel = crate::Selection::caret(crate::cmd::parse_pos(&r["pos"]).unwrap());
+        assert!(crate::cmd::objects::selected(&s).is_some(), "the new stroke is selected");
+        s.run("draw.select", &json!({})).unwrap();
+        assert!(crate::cmd::objects::selected(&s).is_none(), "Done leaves no ink selected");
+        assert_eq!(ink(&s).len(), 1, "Done keeps the stroke");
     }
 
     /// #445: a turned stroke is erased where it is drawn, not where it was before the turn.

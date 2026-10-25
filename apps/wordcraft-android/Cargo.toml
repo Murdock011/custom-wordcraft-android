@@ -1,0 +1,31 @@
+[package]
+name = "wordcraft-android"
+description = "WordCraft native Android host (egui on android-activity). Spike: not the shipping app yet."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "wordcraft_android"
+crate-type = ["cdylib"]
+
+# The workspace forbids unsafe_code. This crate exports `android_main` (the NDK entry point, which
+# needs #[unsafe(no_mangle)]) and has no other unsafe code, so it sets its own lints. Spike finding:
+# keep this exception as small as possible.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+
+# Everything below is Android-only, so `cargo build` on the desktop keeps building an empty library.
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "android-game-activity"] }
+egui = { workspace = true }
+wordcraft-engine = { workspace = true }
+wordcraft-ui-egui = { workspace = true }
+android_logger = "0.15"
+android-activity = { version = "0.6", features = ["game-activity"] }
+jni = "0.22"
+log = { workspace = true }

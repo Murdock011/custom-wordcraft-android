@@ -706,3 +706,19 @@ fn catalog_postscript_names() {
     assert!(!has(&db.families(), "SysfontSans-Bold"));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn android_font_folders_are_scanned() {
+    let root = std::env::temp_dir().join(format!("dc-sysfonts-{}-android", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let dirs = android_font_dirs(&root);
+    let rel: Vec<_> = dirs.iter().map(|d| d.strip_prefix(&root).unwrap().to_str().unwrap().to_owned()).collect();
+    assert_eq!(rel, ["system/fonts", "product/fonts", "system_ext/fonts", "vendor/fonts"]);
+    // Only some partitions carry fonts; the missing ones are skipped.
+    std::fs::create_dir_all(&dirs[1]).unwrap();
+    std::fs::write(dirs[1].join("Sysfont-Regular.ttf"), renamed("SourceSans3-Regular.ttf")).unwrap();
+    let db = FontDb::with_font_dirs(dirs);
+    assert!(db.has_family(FAMILY));
+    assert_eq!(db.face(FAMILY, "Regular").family, FAMILY);
+    std::fs::remove_dir_all(root).unwrap();
+}

@@ -172,6 +172,12 @@ fn mode(s: &mut Session, m: ViewMode, read: bool) -> CmdResult {
         s.view.read_zoom = 1.0;
         s.view.read_line_spacing = None;
     }
+    // Print's fit modes (Page Width, One Page...) set the shared zoom; Web Layout is the edit view
+    // and starts again at 100 %, not at the page-width zoom.
+    if m == ViewMode::Web && s.view.mode != ViewMode::Web && !read {
+        s.view.zoom = 1.0;
+        s.view.fit.clear();
+    }
     s.view.mode = m;
     s.view.read_mode = read;
     s.relayout();
