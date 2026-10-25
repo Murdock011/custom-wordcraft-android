@@ -1481,6 +1481,12 @@ fn touch_style(ui: &mut Ui) {
     }
 }
 
+/// A single-line text field: 48 pt tall on the phone, where Android asks for that touch target
+/// (egui's TextEdit ignores `interact_size`, so the height is its `min_size`). Unchanged on desktop.
+pub(crate) fn touch_edit<'t>(ui: &Ui, edit: egui::TextEdit<'t>) -> egui::TextEdit<'t> {
+    if active(ui.ctx()) { edit.min_size(vec2(0.0, TOUCH_H)) } else { edit }
+}
+
 /// Shows a dialog as a bottom sheet on the phone: the full width of the screen, a title row with a
 /// close button, the body scrolling in the space left, and its action row pinned at the bottom
 /// (see `footer`). The sheet is as tall as its content was last frame, and the whole screen once
@@ -1510,6 +1516,9 @@ pub(crate) fn dialog_sheet(ctx: &Context, id: egui::Id, title: &str, body: impl 
     });
     let mut close = false;
     let out = egui::Area::new(id).order(Order::Foreground).fixed_pos(rect.min).constrain(false).movable(false).show(ctx, |ui| {
+        // Claim the sheet's rect: the area sizes to what it allocates, and a tap on the sheet must not
+        // reach the page under it.
+        ui.allocate_rect(rect, Sense::hover());
         let radius = if full { CornerRadius::ZERO } else { CornerRadius { nw: SHEET_R, ne: SHEET_R, sw: 0, se: 0 } };
         ui.painter().rect_filled(rect, radius, m.surface_low);
         let title_rect = Rect::from_min_size(rect.min, vec2(rect.width(), SHEET_TITLE_H));

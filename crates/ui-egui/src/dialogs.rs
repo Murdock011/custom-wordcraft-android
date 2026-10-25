@@ -1668,9 +1668,9 @@ pub(crate) fn ok_cancel_responses(ui: &mut Ui, draw_ok: impl FnOnce(&mut Ui) -> 
 }
 
 /// The OK and Cancel pair in the phone sheet's pinned footer: Cancel left, OK right, each half the
-/// width and 48 pt tall. `enter` and `escape` say whether those keys press them. None when no
-/// sheet footer is open, so the caller lays its buttons out inline.
-pub(crate) fn footer_buttons(ui: &mut Ui, ok: &str, enter: bool, escape: bool) -> Option<(bool, bool)> {
+/// width and 48 pt tall. `ok_enabled` greys OK out. `enter` and `escape` say whether those keys
+/// press OK and Cancel. None when no sheet footer is open, so the caller lays its buttons out inline.
+pub(crate) fn footer_buttons(ui: &mut Ui, ok: &str, cancel: &str, ok_enabled: bool, enter: bool, escape: bool) -> Option<(bool, bool)> {
     let footer = crate::phone::footer(ui.ctx())?;
     let mut fui = ui.new_child(egui::UiBuilder::new().max_rect(footer).layout(egui::Layout::left_to_right(egui::Align::Center)));
     fui.set_clip_rect(footer);
@@ -1679,13 +1679,13 @@ pub(crate) fn footer_buttons(ui: &mut Ui, ok: &str, enter: bool, escape: bool) -
     let h = crate::phone::TOUCH_H;
     let cancel_r = egui::Rect::from_min_size(r.min, vec2(w, h));
     let ok_r = egui::Rect::from_min_size(egui::pos2(r.right() - w, r.top()), vec2(w, h));
-    let cancelb = fui.put(cancel_r, egui::Button::new(tl!("Cancel")).min_size(vec2(w, h)));
-    let okb = fui.put(ok_r, crate::widgets::primary_button(&fui, ok).min_size(vec2(w, h)));
+    let cancelb = fui.put(cancel_r, egui::Button::new(cancel).min_size(vec2(w, h)));
+    let okb = fui.add_enabled_ui(ok_enabled, |fui| fui.put(ok_r, crate::widgets::primary_button(fui, ok).min_size(vec2(w, h)))).inner;
     let mut out = (false, false);
     if cancelb.clicked() || (escape && cancel_key_pressed(&fui)) {
         out.1 = true;
     }
-    if okb.clicked() || (enter && fui.input(|i| i.key_pressed(egui::Key::Enter))) {
+    if okb.clicked() || (enter && ok_enabled && fui.input(|i| i.key_pressed(egui::Key::Enter))) {
         out.0 = true;
     }
     Some(out)
@@ -1694,7 +1694,7 @@ pub(crate) fn footer_buttons(ui: &mut Ui, ok: &str, enter: bool, escape: bool) -
 pub(crate) fn buttons(ui: &mut Ui, ok: &str) -> (bool, bool) {
     // Enter and Escape belong to the Colors dialog while it is open above this one.
     let keys = !crate::colors::is_open(ui.ctx());
-    if let Some(r) = footer_buttons(ui, ok, keys, keys) {
+    if let Some(r) = footer_buttons(ui, ok, tl!("Cancel"), true, keys, keys) {
         return r;
     }
     let mut r = (false, false);
@@ -1801,7 +1801,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     match d {
         Dialog::RenameDocument { name, message, focus } => {
             ui.label(tl!("Document name"));
-            let r = ui.add(egui::TextEdit::singleline(name).desired_width(320.0).char_limit(200));
+            let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(name)).desired_width(320.0).char_limit(200));
             if *focus {
                 r.request_focus();
                 *focus = false;
@@ -2092,7 +2092,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             let replace_mode = *tab == FindTab::Replace;
             ui.horizontal(|ui| {
                 ui.label(tl!("Find what:"));
-                let r = ui.add(egui::TextEdit::singleline(query).id(egui::Id::new("find_what")).desired_width(240.0));
+                let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(query)).id(egui::Id::new("find_what")).desired_width(240.0));
                 if std::mem::take(focus) {
                     r.request_focus();
                 }
@@ -2103,7 +2103,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             if replace_mode {
                 ui.horizontal(|ui| {
                     ui.label(tl!("Replace with:"));
-                    if ui.add(egui::TextEdit::singleline(replace).desired_width(228.0)).gained_focus() {
+                    if ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(replace)).desired_width(228.0)).gained_focus() {
                         extra.to_replace = true;
                     }
                 });
@@ -2203,7 +2203,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     ui.label(tl!("Text:"));
-                    ui.add(egui::TextEdit::singleline(text).desired_width(110.0).char_limit(2));
+                    ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(text)).desired_width(110.0).char_limit(2));
                     ui.add_space(6.0);
                     enclose_preview(ui, style, text, shape);
                 });
@@ -2385,7 +2385,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
                 ui.end_row();
                 if !*place {
                     ui.label(tl!("Address:"));
-                    let mut out = egui::TextEdit::singleline(url).id(egui::Id::new("link_address")).show(ui);
+                    let mut out = crate::phone::touch_edit(ui, egui::TextEdit::singleline(url)).id(egui::Id::new("link_address")).show(ui);
                     if std::mem::take(focus) {
                         out.response.request_focus();
                         let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(url.chars().count()));
@@ -2658,7 +2658,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             if *swallow {
                 ui.ctx().input_mut(|i| i.events.retain(|e| !swallow_shortcut_text(swallow, e)));
             }
-            let r = ui.add(egui::TextEdit::singleline(query).hint_text(tl!("Type a command, e.g. \"insert table\"")).desired_width(380.0));
+            let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(query)).hint_text(tl!("Type a command, e.g. \"insert table\"")).desired_width(380.0));
             // Only when it lacks focus: `request_focus` always interrupts IME, and on X11 that
             // recreates the XIM context, so asking every frame left fcitx taking no keys (#2986).
             if !r.has_focus() {
@@ -2873,7 +2873,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label(tl!("Password:"));
-                let r = ui.add(egui::TextEdit::singleline(password.as_mut_string()).password(true).desired_width(220.0));
+                let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(password.as_mut_string())).password(true).desired_width(220.0));
                 if password.is_empty() && !r.has_focus() {
                     r.request_focus();
                 }
@@ -2907,13 +2907,13 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.add_space(4.0);
             egui::Grid::new("encrypt_password").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
                 ui.label(tl!("Password:"));
-                let r = ui.add(egui::TextEdit::singleline(password.as_mut_string()).password(true).desired_width(220.0));
+                let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(password.as_mut_string())).password(true).desired_width(220.0));
                 if password.is_empty() && confirm.is_empty() && !r.has_focus() {
                     r.request_focus();
                 }
                 ui.end_row();
                 ui.label(tl!("Confirm password:"));
-                ui.add(egui::TextEdit::singleline(confirm.as_mut_string()).password(true).desired_width(220.0));
+                ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(confirm.as_mut_string())).password(true).desired_width(220.0));
                 ui.end_row();
             });
             ui.label(
@@ -2955,7 +2955,7 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         Dialog::CustomizeRibbon { form } => crate::dialogs_ribbon::customize_ribbon(app, ui, form),
         Dialog::FieldCode { code, edit, message } => {
             ui.label(tl!("Field codes:"));
-            let r = ui.add(egui::TextEdit::singleline(code).desired_width(320.0).font(egui::TextStyle::Monospace));
+            let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(code)).desired_width(320.0).font(egui::TextStyle::Monospace));
             if !r.has_focus() && code.is_empty() {
                 r.request_focus();
             }
@@ -3040,11 +3040,11 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.horizontal(|ui| {
                 ui.radio_value(choice, 2, tl!("From:"));
                 // Typing a number picks the range, as in Word.
-                if ui.add(egui::TextEdit::singleline(from).desired_width(60.0)).changed() {
+                if ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(from)).desired_width(60.0)).changed() {
                     *choice = 2;
                 }
                 ui.label(tl!("To:"));
-                if ui.add(egui::TextEdit::singleline(to).desired_width(60.0)).changed() {
+                if ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(to)).desired_width(60.0)).changed() {
                     *choice = 2;
                 }
             });
@@ -3197,7 +3197,7 @@ pub(crate) fn recipient_list(
     let visible = ui
         .horizontal(|ui| {
             ui.label(tl!("Find in list:"));
-            ui.add(egui::TextEdit::singleline(&mut filter.find).desired_width(180.0).hint_text(tl!("Any field")));
+            ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut filter.find)).desired_width(180.0).hint_text(tl!("Any field")));
             // The rows the grid shows, by real index: edits and removes go to the right record.
             let fresh = visible_recipients(rows, order.as_deref(), &filter.find, filter.only_merged);
             let visible = hold_rows(fresh, &mut filter.held, editing, rows.len());
@@ -3219,7 +3219,7 @@ pub(crate) fn recipient_list(
             ui.horizontal(|ui| {
                 ui.allocate_exact_size(vec2(NUM_W, ROW_H - 4.0), Sense::hover());
                 for (i, f) in fields.iter_mut().enumerate() {
-                    ui.add_sized([CELL_W, ROW_H - 4.0], egui::TextEdit::singleline(f).font(egui::TextStyle::Button).hint_text(tl!("Field name")));
+                    ui.add_sized([CELL_W, ROW_H - 4.0], crate::phone::touch_edit(ui, egui::TextEdit::singleline(f)).font(egui::TextStyle::Button).hint_text(tl!("Field name")));
                     let x = ui.add_enabled(can_remove, egui::Button::new("×").small().min_size(vec2(X_W, X_W))).on_hover_text(tl!("Remove field"));
                     x_w = x.rect.width();
                     if x.clicked() {
@@ -3247,7 +3247,7 @@ pub(crate) fn recipient_list(
                         for (j, c) in row.iter_mut().enumerate() {
                             // Keyed on the record, not its place in the grid: when the view hides
                             // or moves rows, the keyboard can't land in another record (#1576).
-                            let cell = ui.add_sized([CELL_W, ROW_H - 4.0], egui::TextEdit::singleline(c).id_salt(("recipient_cell", r, j)));
+                            let cell = ui.add_sized([CELL_W, ROW_H - 4.0], crate::phone::touch_edit(ui, egui::TextEdit::singleline(c)).id_salt(("recipient_cell", r, j)));
                             if cell.has_focus() {
                                 focused = Some(cell.id);
                             }
@@ -3372,7 +3372,7 @@ fn recipient_filter(ui: &mut Ui, fields: &[String], filter: &mut RecipientFilter
                     ui.selectable_value(&mut r.op, op, tl!(op.label()));
                 }
             });
-            ui.add_enabled(r.op.has_value(), egui::TextEdit::singleline(&mut r.value).desired_width(130.0));
+            ui.add_enabled(r.op.has_value(), crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut r.value)).desired_width(130.0));
             if ui.add(egui::Button::new("×").small()).on_hover_text(tl!("Remove condition")).clicked() {
                 remove = Some(i);
             }
@@ -3645,7 +3645,7 @@ fn bookmark(app: &mut WordApp, ui: &mut Ui, name: &mut String, by_location: &mut
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.label(tl!("Bookmark name:"));
-            ui.add(egui::TextEdit::singleline(name).desired_width(240.0));
+            ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(name)).desired_width(240.0));
             egui::Frame::NONE.stroke(egui::Stroke::new(1.0, t.border)).inner_margin(4).show(ui, |ui| {
                 ui.set_width(232.0);
                 ui.set_height(150.0);
@@ -3928,7 +3928,7 @@ fn goto_body(app: &mut WordApp, ui: &mut Ui, what: &mut GoToWhat, target: &mut S
         ui.vertical(|ui| match what {
             GoToWhat::Page => {
                 ui.label(tl!("Enter page number:"));
-                let r = ui.add(egui::TextEdit::singleline(target).desired_width(220.0));
+                let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(target)).desired_width(220.0));
                 if !r.has_focus() {
                     r.request_focus();
                 }
@@ -4008,7 +4008,7 @@ fn icons_body(app: &mut WordApp, ui: &mut Ui, query: &mut String, category: &mut
     let t = Tokens::get(ui.ctx());
     ui.set_width(560.0);
     // Typing goes to the search box (never to the document behind the dialog).
-    let r = ui.add(egui::TextEdit::singleline(query).hint_text(tl!("Search icons")).desired_width(560.0));
+    let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(query)).hint_text(tl!("Search icons")).desired_width(560.0));
     if !r.has_focus() {
         r.request_focus();
     }

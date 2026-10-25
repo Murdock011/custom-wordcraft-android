@@ -85,6 +85,9 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, d: &mut InsertDialog) -> bool {
 
 /// OK / Cancel (or another OK label); returns (ok, cancel). `ok_enabled` greys OK out.
 pub(crate) fn buttons(ui: &mut Ui, ok: &str, cancel: &str, ok_enabled: bool) -> (bool, bool) {
+    if let Some(r) = crate::dialogs::footer_buttons(ui, tl!(ok), tl!(cancel), ok_enabled, ok_enabled, true) {
+        return r;
+    }
     let mut r = (false, false);
     ui.add_space(8.0);
     ui.horizontal(|ui| {
@@ -943,7 +946,7 @@ fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> bool {
             ui.label(egui::RichText::new(name).font(semibold(12.0)));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(tl!("from Unicode (hex)"));
-                let resp = ui.add(egui::TextEdit::singleline(&mut f.code).desired_width(70.0).font(egui::TextStyle::Monospace));
+                let resp = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut f.code)).desired_width(70.0).font(egui::TextStyle::Monospace));
                 if resp.changed() {
                     let code = f.code.clone();
                     f.select_code(&code);
@@ -1344,7 +1347,7 @@ fn field_options(ui: &mut Ui, f: &mut FieldForm, t: &Tokens) {
     match field_kind(&f.name) {
         FieldKind::Date => {
             ui.label(tl!("Date formats:"));
-            ui.add(egui::TextEdit::singleline(&mut f.date_format).desired_width(f32::INFINITY));
+            ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut f.date_format)).desired_width(f32::INFINITY));
             egui::Frame::new().stroke(Stroke::new(1.0, t.border)).inner_margin(2.0).show(ui, |ui| {
                 egui::ScrollArea::vertical().id_salt("field_dates").max_height(170.0).auto_shrink([false, false]).show(ui, |ui| {
                     for pic in DATE_FORMATS {
@@ -1359,7 +1362,7 @@ fn field_options(ui: &mut Ui, f: &mut FieldForm, t: &Tokens) {
         FieldKind::Number | FieldKind::Sequence => {
             if field_kind(&f.name) == FieldKind::Sequence {
                 ui.label(tl!("Sequence name:"));
-                ui.add(egui::TextEdit::singleline(&mut f.target).desired_width(200.0));
+                ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut f.target)).desired_width(200.0));
             }
             ui.label(tl!("Format:"));
             let shown = NUMBER_FORMATS.iter().find(|(v, _)| *v == f.number_format).map(|(_, l)| *l).unwrap_or("(none)");
@@ -1375,7 +1378,7 @@ fn field_options(ui: &mut Ui, f: &mut FieldForm, t: &Tokens) {
         FieldKind::Bookmark => {
             ui.label(tl!("Bookmark name:"));
             if f.bookmarks.is_empty() {
-                ui.add(egui::TextEdit::singleline(&mut f.target).desired_width(200.0));
+                ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut f.target)).desired_width(200.0));
                 ui.label(egui::RichText::new(tl!("The document has no bookmarks yet.")).small().color(t.text_dim));
             } else {
                 egui::ComboBox::from_id_salt("field_bookmark").selected_text(f.target.clone()).width(200.0).show_ui(ui, |ui| {
@@ -1387,7 +1390,7 @@ fn field_options(ui: &mut Ui, f: &mut FieldForm, t: &Tokens) {
         }
         FieldKind::Merge => {
             ui.label(tl!("Field name:"));
-            ui.add(egui::TextEdit::singleline(&mut f.target).desired_width(200.0));
+            ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut f.target)).desired_width(200.0));
             if !f.merge_fields.is_empty() {
                 ui.horizontal_wrapped(|ui| {
                     for m in f.merge_fields.clone() {

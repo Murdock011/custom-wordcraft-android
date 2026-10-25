@@ -247,7 +247,7 @@ pub fn define_list(app: &mut WordApp, ui: &mut Ui, f: &mut ListForm) -> bool {
         ui.end_row();
         ui.label(tl!("Font:"));
         ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut l.font).desired_width(110.0));
+            ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut l.font)).desired_width(110.0));
             ui.checkbox(&mut l.bold, tl!("Bold"));
             ui.checkbox(&mut l.italic, tl!("Italic"));
         });

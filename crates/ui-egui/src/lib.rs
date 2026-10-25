@@ -2426,6 +2426,11 @@ impl WordApp {
         self.dialog.is_some() || self.colors.is_some() || phone::can_go_back(ctx) || self.ui.backstage || self.canvas.context_menu_open || !self.session.sel.is_collapsed()
     }
 
+    /// The phone's formatting bar is drawn unless a dialog sheet (or the Colors sheet) is open.
+    pub(crate) fn formatting_bar_shown(&self) -> bool {
+        self.dialog.is_none() && self.colors.is_none()
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let ctx_escape = ui.ctx().input(|i| i.key_pressed(egui::Key::Escape));
         if ctx_escape && self.ui.backstage {
@@ -2484,7 +2489,10 @@ impl WordApp {
             }
             phone::top_bar(self, ui);
             phone::status_line(self, ui);
-            phone::bottom_bar(self, ui);
+            // A dialog sheet takes the bottom of the screen: the formatting bar stays away while it is open.
+            if self.formatting_bar_shown() {
+                phone::bottom_bar(self, ui);
+            }
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
                 canvas::show(self, ui);
             });
@@ -4880,6 +4888,52 @@ mod tests {
         h.key_press(egui::Key::Escape);
         h.run_steps(3);
         assert!(h.state().dialog.is_none(), "Escape closes the sheet");
+    }
+
+    /// Update 23: the phone's formatting bar is hidden while a dialog sheet is open, and the sheet's
+    /// OK button is the topmost thing at its centre.
+    #[test]
+    fn phone_formatting_bar_stays_under_a_dialog_sheet() {
+        let mut a = app();
+        a.dialog = dialogs::Dialog::open("font", &mut a);
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(400.0, 800.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let ok = h.get_by_label("OK").rect();
+        let top = h.ctx.layer_id_at(ok.center()).expect("something is under the OK button");
+        assert_eq!(top.id, egui::Id::new(("dialog", "Font")), "the dialog sheet is on top at OK, not the formatting bar");
+        assert!(!h.state().formatting_bar_shown(), "the formatting bar is hidden while the sheet is open");
+        h.state_mut().dialog = None;
+        h.run_steps(3);
+        assert!(h.state().formatting_bar_shown(), "and comes back when the dialog closes");
+    }
+
+    /// Update 23: text fields in a phone dialog sheet are 48 pt tall (the Find dialog's boxes).
+    #[test]
+    fn phone_dialog_text_fields_are_48_pt_tall() {
+        let mut a = app();
+        a.dialog = dialogs::Dialog::open("find", &mut a);
+        assert!(a.dialog.is_some(), "Find opens");
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(400.0, 800.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let fields: Vec<_> = h.query_all(egui_kittest::kittest::By::new().role(egui::accesskit::Role::TextInput)).map(|n| n.rect()).collect();
+        assert!(!fields.is_empty(), "the Find dialog has text fields");
+        for f in &fields {
+            assert!(f.height() >= 48.0, "a text field is 48 pt tall on the phone: {f:?}");
+        }
     }
 
     /// Update 22: with the window short (the keyboard up), the pinned buttons stay on screen.

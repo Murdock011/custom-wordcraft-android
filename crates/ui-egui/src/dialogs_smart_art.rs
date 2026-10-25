@@ -340,7 +340,7 @@ pub fn text_pane(app: &mut WordApp, ui: &mut Ui) {
                 ui.add_space(f32::from(it.level) * 16.0);
                 ui.label(egui::RichText::new("•").color(t.text_dim));
                 let mut text = it.text.clone();
-                let r = ui.add(egui::TextEdit::singleline(&mut text).id_salt(("smart_art_item", i)).desired_width(f32::INFINITY));
+                let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut text)).id_salt(("smart_art_item", i)).desired_width(f32::INFINITY));
                 if want_focus == Some(i) {
                     r.request_focus();
                 }

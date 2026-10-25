@@ -512,7 +512,7 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, f: Form) -> bool {
             {
                 r.font = f;
             }
-            ui.add(egui::TextEdit::singleline(&mut r.size).desired_width(36.0)).on_hover_text(tl!("Size:"));
+            ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut r.size)).desired_width(36.0)).on_hover_text(tl!("Size:"));
             ui.toggle_value(&mut r.bold, egui::RichText::new("B").strong()).on_hover_text(tl!("Bold"));
             ui.toggle_value(&mut r.italic, egui::RichText::new("I").italics()).on_hover_text(tl!("Italic"));
             ui.toggle_value(&mut r.underline, egui::RichText::new("U").underline()).on_hover_text(tl!("Underline"));

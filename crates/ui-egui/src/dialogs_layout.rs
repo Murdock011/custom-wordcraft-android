@@ -115,6 +115,9 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, d: &mut LayoutDialog) -> bool {
 
 /// The accent button and Cancel; returns (ok, cancel).
 fn buttons(ui: &mut Ui, ok: &str, ok_enabled: bool) -> (bool, bool) {
+    if let Some(r) = crate::dialogs::footer_buttons(ui, tl!(ok), tl!("Cancel"), ok_enabled, false, true) {
+        return r;
+    }
     let mut r = (false, false);
     ui.add_space(8.0);
     ui.horizontal(|ui| {
@@ -743,7 +746,7 @@ impl FormulaForm {
 
 fn formula_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FormulaForm) -> bool {
     ui.label(tl!("Formula:"));
-    ui.add(egui::TextEdit::singleline(&mut f.formula).desired_width(300.0));
+    ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut f.formula)).desired_width(300.0));
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         ui.label(tl!("Paste function:"));
@@ -1083,7 +1086,7 @@ fn text_to_table_ui(app: &mut WordApp, ui: &mut Ui, f: &mut TextToTableForm) -> 
     heading(ui, "AutoFit behavior");
     ui.horizontal(|ui| {
         ui.radio_value(&mut f.autofit, "initial".to_string(), tl!("Initial column width:"));
-        ui.add_enabled(f.autofit == "initial", egui::TextEdit::singleline(&mut f.width).desired_width(72.0));
+        ui.add_enabled(f.autofit == "initial", crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut f.width)).desired_width(72.0));
     });
     ui.radio_value(&mut f.autofit, "contents".to_string(), tl!("AutoFit to contents"));
     ui.radio_value(&mut f.autofit, "window".to_string(), tl!("AutoFit to window"));
@@ -1095,7 +1098,7 @@ fn text_to_table_ui(app: &mut WordApp, ui: &mut Ui, f: &mut TextToTableForm) -> 
         ui.radio_value(&mut f.separator, "tab".to_string(), tl!("Tabs"));
         ui.horizontal(|ui| {
             ui.radio_value(&mut f.separator, "other".to_string(), tl!("Other:"));
-            let r = ui.add(egui::TextEdit::singleline(&mut f.other_char).char_limit(1).desired_width(24.0));
+            let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut f.other_char)).char_limit(1).desired_width(24.0));
             if r.changed() {
                 f.separator = "other".into();
             }

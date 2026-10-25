@@ -520,3 +520,29 @@ Follow-ups (next round):
 3. file_browser.rs and read_aloud.rs and zotero alert still use desktop windows on the phone.
 4. Fixed widths (`set_min_width(340)` in body code, two-column grids) to check on device for Size, Crop, Split Cells, Table Properties.
 5. On-device runs of the four named dialogs and Font/Paragraph, with the keyboard-open check.
+
+## Update 23: Phone dialogs, per-dialog fixes (2026-10-25)
+Bug fix (from Update 22 screenshot d22_05): the formatting bar was drawn over the dialog sheet. `App::formatting_bar_shown` (lib.rs) hides the bar while `dialog` or `colors` is open. Test `phone_formatting_bar_stays_under_a_dialog_sheet`. Cause also found: the sheet's Area had zero size (nothing allocated), so it was not hit-tested as a layer; `dialog_sheet` now allocates its rect (also stops taps on the sheet reaching the page).
+
+Text fields (shared): `phone::touch_edit(ui, TextEdit)` sets `min_size` 48 pt on the phone (TextEdit ignores interact_size). Applied to all `egui::TextEdit::singleline` in dialogs*.rs and colors.rs (61 sites, mechanical). Desktop unchanged. Test `phone_dialog_text_fields_are_48_pt_tall` (Find dialog). Not covered: `TextEdit::multiline`, `text_edit_singleline`, and DragValue (see below).
+
+Footer buttons: `dialogs::footer_buttons(ui, ok, cancel, ok_enabled, enter, escape)`. Now used by `dialogs::buttons`, `dialogs_layout::buttons`, `dialogs_insert::buttons`, `dialogs_review::buttons`, `dialogs_controls` (developer properties), Colors. Still inline: dialogs_ribbon rename row, dialogs_notes Cancel, dialogs_layout Cancel-only rows (392, 562), dialogs_review Mac-order rows (671-695, 759-763), dialogs.rs Cancel-only (2778, 2810), dialogs_templates rename OK (238).
+
+Device (emulator-5554, WordCraft focus checked before each shot, Word force-stopped; build via build-native.sh x86_64, install Success):
+- d23_00_launch.png: Recover page (existing drafts). Not a dialog.
+- d23_01_editor.png, d23_02_tabs.png (ribbon tab list), d23_03_insert.png (Insert tab: Table, Picture).
+- d23_04_table_dialog.png: Insert Table as a phone sheet: title row with X, footer Cancel | OK pinned, formatting bar hidden. PASS for host, footer, bar fix.
+- Per-dialog: Insert Table number boxes (DragValue) measure about 39 pt tall in the screenshot (2.625 px/pt): NEEDS-WORK, DragValue is not covered by touch_edit. Follow-up: give DragValue a 48 pt min height on the phone.
+- NOT RUN in this pass: Picture > Size, Picture > Crop (needs a picture; Insert > Picture needs a file picker), Table > Split Cells and Table > Table Properties (need a table at the caret; not inserted yet), Home > Font, Home > Paragraph (not reached: Home tab route not walked), keyboard-open check over a dialog text field.
+
+Tests (this update):
+- cargo test -p wordcraft-ui-egui: 849 passed, 0 failed, 2 ignored.
+- cargo test -p wordcraft-android: 10 passed.
+- cargo xtask wasm: ok (16 crates).
+- Clippy: not run.
+
+Follow-ups:
+1. DragValue on phone: 48 pt min height (Insert Table, Split Cells, Table Properties number boxes).
+2. Finish the inline rows listed above (Cancel-only rows need a single-button footer).
+3. Device pass for Picture Size/Crop, Split Cells, Table Properties, Font, Paragraph; keyboard-open check.
+4. file_browser.rs, read_aloud.rs, zotero alert still desktop windows on phone.
