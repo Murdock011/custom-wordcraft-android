@@ -287,6 +287,10 @@ pub struct UiState {
     #[serde(skip)]
     pub nav_collapsed: std::collections::HashSet<wordcraft_doc::Path>,
     pub show_discord: bool,
+    /// Phone: the selection menu is a row of icon buttons ([`phone::compact_context_menu`]), or the
+    /// list when off. Kept between runs; File › Options › General has the choice.
+    #[serde(default = "compact_selection_default")]
+    pub compact_selection_menu: bool,
     /// User name (File › Options) for comments and tracked changes; empty keeps the default.
     pub author: String,
     /// Desktop: the main window's size and position, restored at the next launch.
@@ -380,6 +384,11 @@ pub const MAX_RECENT_FONTS: usize = 10;
 /// The longest family name Recently Used Fonts keeps, the longest `format.font` accepts.
 pub const MAX_FONT_NAME_BYTES: usize = 128;
 
+/// The selection menu is the icon bar unless the person chose the list (`ui.json` without the key).
+fn compact_selection_default() -> bool {
+    true
+}
+
 impl Default for UiState {
     fn default() -> Self {
         UiState {
@@ -402,6 +411,7 @@ impl Default for UiState {
             nav_pane: false,
             nav_collapsed: Default::default(),
             show_discord: true,
+            compact_selection_menu: true,
             author: String::new(),
             window: None,
             language: i18n::AUTO.into(),
@@ -593,11 +603,8 @@ pub struct WordApp {
     fonts_frames: u32,
     /// The phone layout has set Page Width once this session ([`phone::active`]).
     phone_fitted: bool,
-    /// Phone option: the selection menu is one row of icon buttons ([`phone::compact_context_menu`]).
-    /// Off by default; the list menu stays the default.
-    pub compact_selection_menu: bool,
-    /// Phone option: a tab sheet leads with icon buttons for its commonest commands, and drops the
-    /// text rows they repeat ([`phone::compact_tab_bar`]). Off by default.
+    /// Phone: a tab sheet leads with icon buttons for its commonest commands, and drops the text
+    /// rows they repeat ([`phone::compact_tab_bar`]). On by default; not a setting yet.
     pub compact_tab_bars: bool,
     /// Whether the phone layout is on this frame ([`phone::active`]), set at the top of `ui`.
     pub(crate) phone: bool,
@@ -739,8 +746,7 @@ impl WordApp {
             find_fonts_for: None,
             fonts_frames: 0,
             phone_fitted: false,
-            compact_selection_menu: false,
-            compact_tab_bars: false,
+            compact_tab_bars: true,
             phone: false,
             applied_theme: None,
             native_scale: 1.0,
@@ -1603,12 +1609,12 @@ impl WordApp {
             // The phone's compact menus (`compactSelection`, `compactTabs`): a setting, not a dialog.
             "ui.phoneMenus" => {
                 if let Some(on) = p.get("compactSelection").and_then(Value::as_bool) {
-                    self.compact_selection_menu = on;
+                    self.ui.compact_selection_menu = on;
                 }
                 if let Some(on) = p.get("compactTabs").and_then(Value::as_bool) {
                     self.compact_tab_bars = on;
                 }
-                json!({"compactSelection": self.compact_selection_menu, "compactTabs": self.compact_tab_bars})
+                json!({"compactSelection": self.ui.compact_selection_menu, "compactTabs": self.compact_tab_bars})
             }
             "ui.dialog" if s("name") == Some("colors") => {
                 // The font colour's More Colors… (#606); `tab`: standard or custom.
@@ -2486,8 +2492,13 @@ impl WordApp {
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let ctx_escape = ui.ctx().input(|i| i.key_pressed(egui::Key::Escape));
-        if ctx_escape && self.ui.backstage {
+        // On a phone, Escape in an open Options category goes back to its list (options::phone_page).
+        if ctx_escape && self.ui.backstage && !options::phone_category_open(ui.ctx()) {
             self.ui.backstage = false;
+        }
+        // The list shows whenever Backstage is opened again.
+        if !self.ui.backstage {
+            options::set_phone_category_open(ui.ctx(), false);
         }
         let t0 = now_ms();
         let ctx = ui.ctx().clone();
@@ -3795,6 +3806,27 @@ mod tests {
         c.apply_prefs(old);
         assert!(!c.ui.backstage, "applying settings alone stays in the editor");
         assert!(c.start_screen() && c.ui.backstage_page == "home");
+    }
+
+    /// Update 32: the phone's selection menu is the icon bar by default. The list is a saved choice
+    /// (File › Options › General), and it survives a restart. The tab icon bars are on too.
+    #[test]
+    fn selection_menu_is_icons_by_default_and_the_list_survives_a_restart() {
+        let mut a = app();
+        assert!(a.ui.compact_selection_menu, "icons by default");
+        assert!(a.compact_tab_bars, "the tab icon bars are on by default");
+        assert_eq!(
+            a.run("ui.phoneMenus", json!({"compactSelection": false})).unwrap(),
+            json!({"compactSelection": false, "compactTabs": true}),
+            "the list is chosen"
+        );
+        let saved = serde_json::to_string(&a.prefs()).unwrap();
+        assert!(saved.contains(r#""compactSelectionMenu":false"#), "{saved}");
+        let mut b = app();
+        b.apply_prefs(serde_json::from_str(&saved).unwrap());
+        assert!(!b.ui.compact_selection_menu, "the list survives a restart");
+        let old: UiState = serde_json::from_str(r#"{"tab":"Insert"}"#).unwrap();
+        assert!(old.compact_selection_menu, "settings from before the option get the icon bar");
     }
 
     /// Insert › Icons (#309) opens the icon picker from the ribbon; an id inserts without it.

@@ -873,3 +873,25 @@ In `canvas.rs` around 1797-1799, do not call `resp.request_focus()` on a pointer
 ### Still open
 - Long-press menu check and a dialog text-field keyboard check are not confirmed on device.
 - No commit, no push. The `notes/native-spike-results.md` edit and `canvas.rs` are uncommitted.
+## Update 32: Icon menus by default, full-width tab bars (2026-10-25)
+Device checks: NOT RUN (the emulator was not used). Verified by unit tests, the full `wordcraft-ui-egui` suite (862 + 10 pass) and headless `ui_shot` renders at 412x915 pt, scale 2.625.
+
+1. Selection menu: icons by default. `UiState::compact_selection_menu` (saved in `ui.json` as `compactSelectionMenu`, default on; `ui.json` without the key gets the icon bar). It moved from `WordApp` so it persists. File › Options › General, Interface section, has "Selection menu:" with radio buttons "Icons" and "List" (stacked on their own line so both fit a phone's column). The list stays available; a misspelt word still shows the list, since the icon bar has no suggestions.
+2. Tab icon bars: on by default (`WordApp::compact_tab_bars`, default true). No user option: the choice was left out to keep the Options page short. Easy to add next to the selection menu later.
+3. Full-width bars: `phone::compact_tab_bar` gives each of four columns the sheet's width divided by four and centres each 48 pt button in its column. The first and last buttons of each row sit near the sheet's edges.
+4. Accessibility: `icon_button` now reports its tooltip text as the widget's accessible label, so tests and screen readers find each icon by name.
+
+Tests:
+- `selection_menu_is_icons_by_default_and_the_list_survives_a_restart` (lib.rs): icons by default, the list is set through `ui.phoneMenus`, it survives `prefs()`/`apply_prefs`, and old `ui.json` gets the icon bar.
+- `icon_bars_fill_the_sheet_width` (phone.rs): Table (inserts a table first, since the tab shows only in a table) and Layout bars, first and last buttons near the edges, even spacing.
+
+Known, not changed here: at phone width the Options page is wider than the screen (the left pane list plus a 640 pt content column), so the right edge of the General pane is clipped, and the same happens to the Interface size and theme dropdowns. That predates Update 32.
+
+Mockups (`notes/mockups/`): `selection-menu-default.png` (icon bar on a selection), `table-tab-fullwidth.png`, `layout-tab-fullwidth.png`, `options-selection-menu.png`. Checked by eye: the icon bars fill the sheet width, and the Options row shows Icons and List.
+
+Addendum (Update 32, second pass): phone Options.
+5. On a phone, File › Options opens as a full-width list of the categories (48 pt rows, `phone::list_row`). A tapped category opens full width with a Back row above it. Back, and Escape, return to the list; leaving Backstage shows the list again. Escape in an open category does not close Backstage (`lib.rs` `ui`). The pages wrap to the screen width: the 640 pt column and the two-pane layout are desktop only, and the rows in the pages use `horizontal_wrapped`, so a control that does not fit moves to the next line under its label.
+6. Tests (`options.rs` `phone_tests`): the list shows first; a category opens with its radio buttons inside the 412 pt screen; Back returns to the list; Escape returns to the list and keeps Options open; the desktop keeps the two-pane layout with no Back row.
+7. Mockups: `options-phone-list.png` (the category list) and `options-phone-general.png` (General, with "Selection menu: Icons / List" fully visible). Both checked by eye: nothing is cut off on the right.
+`ui_shot` takes `{"tap": [x, y]}` (a phone point) for these screens.
+Full `cargo test -p wordcraft-ui-egui`: 865 + 10 pass. `cargo xtask wasm`: ok.
