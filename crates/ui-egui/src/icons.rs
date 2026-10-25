@@ -1116,6 +1116,17 @@ pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, accent: Color32) {
             pen.line_c(&[(12.0, 12.0), (18.0, 18.0)], red);
             pen.line_c(&[(18.0, 12.0), (12.0, 18.0)], red);
         }
+        // A table with one row (or column) shaded, and a red minus: the delete commands.
+        "deleteRow" => {
+            pen.rect(3.0, 3.0, 17.0, 17.0, c);
+            pen.frect(3.0, 8.0, 17.0, 12.0, a.linear_multiply(0.4));
+            pen.line_c(&[(12.0, 18.0), (20.0, 18.0)], red);
+        }
+        "deleteColumn" => {
+            pen.rect(3.0, 3.0, 17.0, 17.0, c);
+            pen.frect(8.0, 3.0, 12.0, 17.0, a.linear_multiply(0.4));
+            pen.line_c(&[(18.0, 12.0), (18.0, 20.0)], red);
+        }
         "merge" => {
             pen.rect(3.0, 5.0, 17.0, 15.0, c);
             pen.line_c(&[(5.0, 10.0), (15.0, 10.0)], a);

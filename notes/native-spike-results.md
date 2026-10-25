@@ -747,3 +747,21 @@ No engine change, so `docs/ENGINE-CHANGES.md` is untouched.
 ### Open items
 - Read Aloud playback on the emulator needs the speech program (Permission denied). Not verified end to end.
 - Restore keeps the copy until save (a design decision for the owner): a restored draft that was never saved is offered again on relaunch.
+
+## Update 30: Sheets block touches, tap-away keeps selection, icon menu mockup (2026-10-25)
+Device checks: NOT RUN (the emulator was in use by another agent). Verified by unit tests and headless `ui_shot` renders only.
+
+1. Sheets block touches (fix). Cause: the canvas took presses on the page while the phone tab sheet (`phone::menu`, a bottom panel) was open, so a long press selected text and a drag scrolled the page. Fix: `phone::take_pointer` runs once per frame in `canvas::show`. While a sheet is open it takes the pointer; a press outside the sheet's rect closes the sheet and is consumed. The gesture stays taken until release: the canvas senses hover only, drag scroll is off, the touch and long-press code is skipped, and the desktop pen is skipped. The sheet's rect is stored each frame in `phone_menu_rect`.
+2. Tap-away keeps the selection (fix). A press outside the selection menu closes only the menu (`take_pointer` with `outside_selection_menu`), consumed, so no caret is placed and the range stays. The canvas also clears its drag state (`unit_drag`, `handle_drag`, `dragging`) when the gesture is taken. The next tap places a caret.
+3. Icon-only selection menu (option, default off). `WordApp::compact_selection_menu` and `phone::compact_context_menu`: Cut, Copy, Paste, Select All, New Comment, More as 48 pt icon buttons with tooltips, placed by `phone_menu_pos`. More opens the list's More page. A misspelt word keeps the list (its suggestions are not in the icon bar).
+4. Icon bars in tab sheets (option, default off). `WordApp::compact_tab_bars` and `phone::compact_tab_bar`: Table (insert above/below, insert left/right, delete rows, delete columns, merge, split) and Layout (margins, orientation, columns, breaks), four to a row, 48 pt. When a bar is shown its rows are not repeated below it. Every icon goes through `phone::pick_row`, the same dispatch as the text rows. New icons `deleteRow` and `deleteColumn` in `icons.rs`. Picture tab skipped (no flip icons yet).
+Setting: `ui.phoneMenus` command (`{"compactSelection": bool, "compactTabs": bool}`), used by the screenshots.
+`ui_shot` now takes `{"scale": 2.625}` on its first line, `{"phoneSheet": tab}` to open a tab sheet, and `{"longPress": [x, y]}` (points).
+
+Tests (`cargo test -p wordcraft-ui-egui phone`: 33 pass):
+- `phone_tab_sheet_takes_the_page_touches`: long press on the page with the Home sheet open leaves the selection and scroll unchanged; the sheet closes.
+- `phone_tab_sheet_keeps_touches_on_itself`: a press on the sheet keeps it open and the page untouched.
+- `phone_tap_away_closes_the_menu_and_keeps_the_selection`: tap-away keeps the range; a second tap (after the double-click time) places a caret.
+- `compact_bar_icons_are_the_rows_they_stand_for` (phone.rs): bars are off by default, and each icon's id and label match a text row of its tab.
+
+Mockups (`notes/mockups/`, phone 412x915 pt at 2.625): `selection-menu-current.png`, `selection-menu-icons.png`, `selection-menu-compare.png`, `table-tab-current.png`, `table-tab-icons.png`, `table-tab-compare.png`. Checked by eye: the menu is visible and the selection highlight and handles are not covered.

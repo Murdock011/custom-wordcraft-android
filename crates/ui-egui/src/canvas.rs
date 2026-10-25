@@ -998,11 +998,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             let scale = app.session.view.zoom.clamp(0.1, 5.0) * PX_PER_PT;
             // On a phone the paper runs edge to edge and the layout's 18 pt side margins are
             // shifted (see `Geometry`), so the text keeps about 12 pt from each screen edge.
-            let w = if app.phone {
-                web_layout_width(full.width() + 12.0 * scale, scale)
-            } else {
-                web_layout_width(full.width() - SCROLLBAR, scale)
-            };
+            let w = if app.phone { web_layout_width(full.width() + 12.0 * scale, scale) } else { web_layout_width(full.width() - SCROLLBAR, scale) };
             let changed = (app.session.view.web_width - w).abs() > 0.5;
             let entering = app.canvas.web_viewport.entering();
             if app.canvas.web_viewport.apply(full.size(), now, changed, false) {
@@ -1226,12 +1222,29 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // Phone Web Layout wraps the text to the screen, so it never needs to scroll sideways. A few
     // points of spare width would let a drag (a selection handle, say) pan the page sideways.
     let sideways = !(app.phone && app.session.view.mode == wordcraft_layout::ViewMode::Web);
+    // Phone menus own the pointer while open: a sheet takes its area, and a press outside the
+    // selection menu only closes it. The page gets none of that gesture (no caret, no drag scroll).
+    let press = ui.input(|i| i.pointer.primary_pressed().then(|| i.pointer.latest_pos()).flatten());
+    let outside_menu =
+        press.is_some_and(|p| !ui.ctx().layer_id_at(p).is_some_and(|l| matches!(l.order, egui::Order::Foreground | egui::Order::Tooltip)));
+    let taken = app.phone && crate::phone::take_pointer(ui.ctx(), app.canvas.context_menu_open, outside_menu);
+    if taken {
+        // The page's drag state (a long press's word drag, a handle drag) dies with the gesture, so
+        // the next tap starts clean.
+        app.canvas.unit_drag = None;
+        app.canvas.dragging = false;
+        app.canvas.handle_drag = None;
+    }
+    if taken && press.is_some() && app.canvas.context_menu_open {
+        app.canvas.context_menu_open = false;
+    }
+    let drag = if taken { egui::scroll_area::DragScroll::Never } else { egui::scroll_area::DragScroll::OnTouch };
     let mut scroll_area = if sideways { egui::ScrollArea::both() } else { egui::ScrollArea::vertical() }
         .id_salt("canvas_scroll")
         .auto_shrink([false, false])
         // Bringing the caret into view glides there, or jumps with animation effects off.
         .animated(animate)
-        .scroll_source(egui::scroll_area::ScrollSource { mouse_wheel: false, ..Default::default() });
+        .scroll_source(egui::scroll_area::ScrollSource { mouse_wheel: false, drag, ..Default::default() });
     if app.session.view.read_mode {
         scroll_area = scroll_area.scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
     }
@@ -1271,21 +1284,28 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         let stored_select = ui.data(|d| d.get_temp::<bool>(touch_select_id)).unwrap_or(false);
         // A press on a selection handle drags it at once: the scroll gesture never gets it.
         let on_handle = app.phone && ui.input(|i| i.pointer.primary_pressed()) && handle_at(app, ui.input(|i| i.pointer.latest_pos())).is_some();
-        let touch_select = !app.phone || stored_select || on_handle;
-        let sense = if touch_select { Sense::click_and_drag() } else { Sense::click() };
+        let touch_select = !taken && (!app.phone || stored_select || on_handle);
+        let sense = if taken {
+            Sense::hover()
+        } else if touch_select {
+            Sense::click_and_drag()
+        } else {
+            Sense::click()
+        };
         let resp = ui.interact(content, egui::Id::new("wordcraft_canvas"), sense);
         if app.phone {
-            let (down, since, origin, pos, now) = ui.input(|i| {
-                (i.pointer.primary_down(), i.pointer.press_start_time(), i.pointer.press_origin(), i.pointer.latest_pos(), i.time)
-            });
-            let held_still = matches!((origin, pos), (Some(o), Some(p)) if (p - o).length() < 10.0)
-                && since.is_some_and(|t| now - t >= 0.4);
-            let next = down && (touch_select || held_still);
+            let (down, since, origin, pos, now) =
+                ui.input(|i| (i.pointer.primary_down(), i.pointer.press_start_time(), i.pointer.press_origin(), i.pointer.latest_pos(), i.time));
+            let held_still = matches!((origin, pos), (Some(o), Some(p)) if (p - o).length() < 10.0) && since.is_some_and(|t| now - t >= 0.4);
+            let next = !taken && down && (touch_select || held_still);
             if next != stored_select {
                 ui.data_mut(|d| d.insert_temp(touch_select_id, next));
             }
             // The long press that starts a selection also selects the word under it (Word's behaviour).
-            if next && !touch_select && let Some(o) = origin {
+            if next
+                && !touch_select
+                && let Some(o) = origin
+            {
                 ui.data_mut(|d| d.insert_temp(egui::Id::new("wordcraft_long_press"), o));
             }
             if down && !next {
@@ -1822,7 +1842,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         let _ = app.run("view.hideWhiteSpace", json!({"value": !app.session.view.hide_white_space}));
     } else
     // Draw Table / Eraser own the mouse while on (no caret moves); else the usual editing.
-    if !middle_gesture && !crate::table_pen::pointer(app, ui, &resp, &rects, &layout, geo.scale) {
+    if !middle_gesture && !taken && !crate::table_pen::pointer(app, ui, &resp, &rects, &layout, geo.scale) {
         mouse(app, ui, &resp, &rects, &layout, geo.scale);
     }
     // A click on a check box ticks it; on a list's button opens the list.
@@ -3516,7 +3536,7 @@ fn context_menu(app: &mut WordApp, ui: &mut Ui) {
         return equation_menu(app, ui);
     }
     if crate::phone::active(ui.ctx()) {
-        return crate::phone::context_menu(app, ui);
+        return if app.compact_selection_menu { crate::phone::compact_context_menu(app, ui) } else { crate::phone::context_menu(app, ui) };
     }
     ui.set_min_width(220.0);
     let item = |ui: &mut Ui, app: &mut WordApp, label: &str, id: &str, params: serde_json::Value| {

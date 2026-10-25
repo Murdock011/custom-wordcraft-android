@@ -170,10 +170,13 @@ pub fn status_line(app: &WordApp, ui: &mut Ui) {
     let width = (screen.width() - 2.0 * FLOAT_GAP).max(0.0);
     let pos = Pos2::new(screen.left() + FLOAT_GAP, screen.top() + APP_BAR_H + 8.0);
     egui::Area::new(egui::Id::new("phone_status")).fixed_pos(pos).order(Order::Foreground).interactable(false).show(&ctx, |ui| {
-        egui::Frame::NONE.fill(m.surface_high).corner_radius(CornerRadius::same(8)).shadow(elevation()).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
-            ui.set_width((width - 24.0).max(0.0));
-            ui.add(egui::Label::new(egui::RichText::new(msg.as_str()).font(regular(14.0)).color(m.on_surface)).wrap());
-        });
+        egui::Frame::NONE.fill(m.surface_high).corner_radius(CornerRadius::same(8)).shadow(elevation()).inner_margin(Margin::symmetric(12, 8)).show(
+            ui,
+            |ui| {
+                ui.set_width((width - 24.0).max(0.0));
+                ui.add(egui::Label::new(egui::RichText::new(msg.as_str()).font(regular(14.0)).color(m.on_surface)).wrap());
+            },
+        );
     });
 }
 
@@ -366,9 +369,37 @@ fn menu_id() -> egui::Id {
     egui::Id::new("phone_menu_tab")
 }
 
+/// Where the open tab sheet's panel was drawn last. It lets a press outside it be told apart.
+fn sheet_rect_id() -> egui::Id {
+    egui::Id::new("phone_menu_rect")
+}
+
+/// Whether a phone menu owns the pointer this frame. An open sheet takes its own area, and a press
+/// outside it closes the sheet. A press outside the selection menu (`outside_selection_menu`, with
+/// that menu open) closes only the menu, and keeps the selection. Either way the page gets none of
+/// the gesture (no caret, no selection, no scroll) until the pointer is released.
+pub(crate) fn take_pointer(ctx: &Context, selection_menu_open: bool, outside_selection_menu: bool) -> bool {
+    let (down, pressed, pos) = ctx.input(|i| (i.pointer.primary_down(), i.pointer.primary_pressed(), i.pointer.latest_pos()));
+    let gesture = egui::Id::new("phone_gesture_taken");
+    if !down {
+        ctx.data_mut(|d| d.remove::<bool>(gesture));
+        return false;
+    }
+    if pressed {
+        let rect = ctx.data(|d| d.get_temp::<Rect>(sheet_rect_id()));
+        let outside_sheet = sheet_open(ctx) && matches!((pos, rect), (Some(p), Some(r)) if !r.contains(p));
+        if outside_sheet || (selection_menu_open && outside_selection_menu) {
+            set_menu(ctx, None);
+            ctx.data_mut(|d| d.insert_temp(gesture, true));
+            return true;
+        }
+    }
+    sheet_open(ctx) || ctx.data(|d| d.get_temp::<bool>(gesture)).unwrap_or(false)
+}
+
 /// Opens the menu on a tab, and takes the keyboard away from the page: the menu and the keyboard
 /// never show together.
-fn open_menu(app: &mut WordApp, ctx: &Context, tab: usize) {
+pub(crate) fn open_menu(app: &mut WordApp, ctx: &Context, tab: usize) {
     app.canvas.want_focus = false;
     app.canvas.focused = false;
     set_menu(ctx, Some(tab));
@@ -644,6 +675,113 @@ pub fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     }
 }
 
+/// Runs a tab row's command, or opens its sheet or swatch grid. The text rows and the icon bar both
+/// go through here, so an icon does what its row does.
+fn pick_row(app: &mut WordApp, ctx: &Context, id: &str) {
+    // Highlight and Font Color open their swatch grids, not the last colour.
+    match id {
+        "format.highlight" => set_sub(ctx, Some(Sub::Highlight)),
+        "ui.colors" => set_sub(ctx, Some(Sub::Colour)),
+        "layout.margins" => set_sub(ctx, Some(Sub::Margins)),
+        "layout.orientation" => set_sub(ctx, Some(Sub::Orientation)),
+        "layout.size" => set_sub(ctx, Some(Sub::PaperSize)),
+        "layout.columns" => set_sub(ctx, Some(Sub::Columns)),
+        "layout.break" => set_sub(ctx, Some(Sub::Breaks)),
+        "review.comments" => set_sub(ctx, Some(Sub::Comments)),
+        "review.newComment" => comment_field(ctx, CommentTarget::New),
+        _ => run(app, id),
+    }
+    // A menu row keeps the keyboard down: the menu is open.
+    app.canvas.want_focus = false;
+}
+
+/// One icon button of a compact bar: (icon, tooltip and name, the row's command id).
+type BarButton = (&'static str, &'static str, &'static str);
+
+/// Table's icon bar (phone option `WordApp::compact_tab_bars`): the insert, delete, merge and split
+/// commands, in rows of four.
+const TABLE_BAR: [BarButton; 8] = [
+    ("insertAbove", "Insert Row Above", "table.insertRowAbove"),
+    ("insertBelow", "Insert Row Below", "table.insertRowBelow"),
+    ("insertLeft", "Insert Column Left", "table.insertColumnLeft"),
+    ("insertRight", "Insert Column Right", "table.insertColumnRight"),
+    ("deleteRow", "Delete Rows", "table.deleteRow"),
+    ("deleteColumn", "Delete Columns", "table.deleteColumn"),
+    ("merge", "Merge Cells", "table.merge"),
+    ("splitCells", "Split Cells", "table.split"),
+];
+
+/// Layout's icon bar: the page setup commands that have icons (Size stays in the list).
+const LAYOUT_BAR: [BarButton; 4] = [
+    ("margins", "Margins", "layout.margins"),
+    ("orientation", "Orientation", "layout.orientation"),
+    ("columns", "Columns", "layout.columns"),
+    ("breaks", "Breaks", "layout.break"),
+];
+
+/// The icon bar a tab shows: none unless the compact tab bars are on.
+fn compact_bar(on: bool, tab: usize) -> &'static [BarButton] {
+    if !on {
+        return &[];
+    }
+    match TABS.get(tab).copied() {
+        Some("Table") => &TABLE_BAR,
+        Some("Layout") => &LAYOUT_BAR,
+        _ => &[],
+    }
+}
+
+/// The icon bar at the top of a tab sheet: 48 pt icon buttons, four to a row.
+fn compact_tab_bar(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context, bar: &[BarButton]) {
+    ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+    for row in bar.chunks(4) {
+        ui.horizontal(|ui| {
+            for (icon, label, id) in row {
+                if icon_button(ui, m, icon, label).clicked() {
+                    pick_row(app, ctx, id);
+                }
+            }
+        });
+    }
+}
+
+/// Phone option (`WordApp::compact_selection_menu`): the selection menu as one row of 48 pt icon
+/// buttons (Cut, Copy, Paste, Select All, New Comment, More), each named by its tooltip. More opens
+/// the list's More page, and a misspelt word keeps the list, which carries its suggestions.
+pub fn compact_context_menu(app: &mut WordApp, ui: &mut Ui) {
+    let m = md(ui.ctx());
+    let ctx = ui.ctx().clone();
+    let more_id = egui::Id::new("phone_ctx_more");
+    let in_more = ctx.data(|d| d.get_temp::<bool>(more_id)).unwrap_or(false);
+    let spelling = app.canvas.context_issue.as_ref().is_some_and(|i| i.get("kind").and_then(|k| k.as_str()) == Some("spelling"));
+    if in_more || spelling {
+        return context_menu(app, ui);
+    }
+    let selected = !app.session.sel.is_collapsed();
+    ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+    ui.horizontal(|ui| {
+        for (icon, label, id) in
+            [("cut", "Cut", "edit.cut"), ("copy", "Copy", "edit.copy"), ("paste", "Paste", "edit.paste"), ("select", "Select All", "select.all")]
+        {
+            let on = crate::widgets::enabled(app, id) && (selected || !matches!(id, "edit.cut" | "edit.copy"));
+            ui.add_enabled_ui(on, |ui| {
+                if icon_button(ui, m, icon, label).clicked() {
+                    let _ = app.run(id, json!({}));
+                    ui.close();
+                }
+            });
+        }
+        if icon_button(ui, m, "comment", "New Comment").clicked() {
+            set_menu(&ctx, Some(3));
+            comment_field(&ctx, CommentTarget::New);
+            ui.close();
+        }
+        if icon_button(ui, m, "more", "More").clicked() {
+            ctx.data_mut(|d| d.insert_temp(more_id, true));
+        }
+    });
+}
+
 /// A thin vertical rule between groups of toolbar controls.
 fn divider(ui: &mut Ui, m: Md) {
     let (r, _) = ui.allocate_exact_size(vec2(1.0, 24.0), Sense::hover());
@@ -662,7 +800,7 @@ fn menu(app: &mut WordApp, ui: &mut Ui, tab: usize) {
     let height = (ctx.content_rect().height() * 0.55).clamp(300.0, 520.0);
     // Flat top edge: the rounded corners showed dark wedges on the device, so the sheet is square.
     let top_only = CornerRadius::ZERO;
-    Panel::bottom("phone_menu")
+    let panel = Panel::bottom("phone_menu")
         .exact_size(height)
         .frame(egui::Frame::NONE.fill(m.surface_low).corner_radius(top_only).shadow(elevation()).inner_margin(Margin::symmetric(16, 0)))
         .show(ui, |ui| {
@@ -694,23 +832,15 @@ fn menu(app: &mut WordApp, ui: &mut Ui, tab: usize) {
             }
             ui.add_space(8.0);
             egui::ScrollArea::vertical().show(ui, |ui| {
-                for (label, id) in rows(tab) {
+                // The icon bar, when it is on, stands for its rows: those rows are not repeated below.
+                let bar = compact_bar(app.compact_tab_bars, tab);
+                if !bar.is_empty() {
+                    compact_tab_bar(app, ui, m, &ctx, bar);
+                    ui.add_space(8.0);
+                }
+                for (label, id) in rows(tab).iter().filter(|(_, id)| !bar.iter().any(|b| b.2 == *id)) {
                     if list_row(ui, m, label, row_icon(id), row_chevron(id)).clicked() {
-                        // Highlight and Font Color open their swatch grids, not the last colour.
-                        match *id {
-                            "format.highlight" => set_sub(&ctx, Some(Sub::Highlight)),
-                            "ui.colors" => set_sub(&ctx, Some(Sub::Colour)),
-                            "layout.margins" => set_sub(&ctx, Some(Sub::Margins)),
-                            "layout.orientation" => set_sub(&ctx, Some(Sub::Orientation)),
-                            "layout.size" => set_sub(&ctx, Some(Sub::PaperSize)),
-                            "layout.columns" => set_sub(&ctx, Some(Sub::Columns)),
-                            "layout.break" => set_sub(&ctx, Some(Sub::Breaks)),
-                            "review.comments" => set_sub(&ctx, Some(Sub::Comments)),
-                            "review.newComment" => comment_field(&ctx, CommentTarget::New),
-                            _ => run(app, id),
-                        }
-                        // A menu row keeps the keyboard down: the menu is open.
-                        app.canvas.want_focus = false;
+                        pick_row(app, &ctx, id);
                     }
                 }
                 if tab == TABLE_TAB {
@@ -729,6 +859,7 @@ fn menu(app: &mut WordApp, ui: &mut Ui, tab: usize) {
                 }
             });
         });
+    ctx.data_mut(|d| d.insert_temp(sheet_rect_id(), panel.response.rect));
 }
 
 /// Home's font row: the font name and size stepper, then the character formats.
@@ -1538,17 +1669,15 @@ pub(crate) fn dialog_sheet(ctx: &Context, id: egui::Id, title: &str, body: impl 
         );
         let mut title_ui = ui.new_child(egui::UiBuilder::new().max_rect(title_rect).layout(Layout::right_to_left(egui::Align::Center)));
         close = icon_button(&mut title_ui, m, "close", "Close").clicked();
-        let mut body_ui = ui.new_child(
-            egui::UiBuilder::new().max_rect(body_rect.shrink2(vec2(SHEET_GUTTER, 0.0))).layout(Layout::top_down(egui::Align::Min)),
-        );
-        let scroll = egui::ScrollArea::vertical()
-            .id_salt(id.with("body"))
-            .auto_shrink([false, false])
-            .max_height(body_rect.height())
-            .show(&mut body_ui, |ui| {
+        let mut body_ui =
+            ui.new_child(egui::UiBuilder::new().max_rect(body_rect.shrink2(vec2(SHEET_GUTTER, 0.0))).layout(Layout::top_down(egui::Align::Min)));
+        let scroll = egui::ScrollArea::vertical().id_salt(id.with("body")).auto_shrink([false, false]).max_height(body_rect.height()).show(
+            &mut body_ui,
+            |ui| {
                 touch_style(ui);
                 body(ui)
-            });
+            },
+        );
         close |= scroll.inner;
         let total_now = SHEET_TITLE_H + scroll.content_size.y + SHEET_GUTTER + footer_h;
         ctx.data_mut(|d| d.insert_temp(sheet_height_key(), total_now));
@@ -1602,6 +1731,23 @@ mod tests {
             run(&mut app, id);
             assert_eq!(app.dialog.as_ref().map(|d| d.name()), Some(dialog), "{label} opens the {dialog} dialog");
         }
+    }
+
+    /// Item 4: the icon bars are off by default, and each icon names the same command as the text
+    /// row it stands for, so an icon does what its row does.
+    #[test]
+    fn compact_bar_icons_are_the_rows_they_stand_for() {
+        let layout = TABS.iter().position(|t| *t == "Layout").unwrap_or(0);
+        assert!(compact_bar(false, TABLE_TAB).is_empty(), "the icon bar is off by default");
+        assert!(compact_bar(false, layout).is_empty());
+        for tab in [TABLE_TAB, layout] {
+            let shown = compact_bar(true, tab);
+            assert!(!shown.is_empty(), "tab {} has an icon bar", TABS[tab]);
+            for (_, label, id) in shown {
+                assert!(rows(tab).iter().any(|(l, i)| i == id && l == label), "{id} ({label}) is a text row of the tab");
+            }
+        }
+        assert_eq!(compact_bar(true, TABLE_TAB).len(), 8, "insert, delete, merge and split");
     }
 
     #[test]
