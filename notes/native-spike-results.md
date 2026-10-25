@@ -1057,3 +1057,16 @@ Scope: the Android launcher icon only. No Rust or UI change.
 6. minSdk is 29, so no legacy `mipmap-*/ic_launcher.png` files were needed.
 
 Checks: `packaging/android-native/build-native.sh x86_64` passes. `cargo xtask assets` fails on tracked `notes/mockups/*.png` from Update 36 that have no ATTRIBUTION rows; that failure predates this update. Preview circle and rounded-square masks checked by eye: all artwork visible.
+
+## Update 38: "Rent is the" line break recheck (2026-10-25)
+Not reproduced. No code change.
+
+Steps (emulator-5554, x86_64, Word force-stopped, WordCraft launched via the launcher intent): the app opened on Recover, back arrow tapped (no Restore or Discard). The document "The Open Studio Handbook" opened. Scrolled to "Why share a studio?", then tapped "reason" in "Rent is the obvious reason, but it is not the best one." with Gboard open.
+
+Screenshots (`~/.cache/wc-spike/`):
+- `u38-0-launch.png`: Recover page on launch.
+- `u38-1-after-back.png`: document after the back arrow.
+- `u38-2-scroll.png`: paragraph before the tap.
+- `u38-3-after-tap.png`: paragraph after the tap.
+
+Result: no underline on "reason", and the line after "Rent is the" wraps normally. The Update 33 odd break came with a Gboard composing region, which Update 35's span change removed; the stray underline is gone too. Not checked: typing inside the paragraph to trigger a composing region.
