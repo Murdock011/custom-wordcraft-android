@@ -1433,6 +1433,119 @@ fn list_row(ui: &mut Ui, m: Md, label: &str, icon: &str, chevron: bool) -> egui:
     resp
 }
 
+// Dialogs as bottom sheets (Update 22). Every dialog that opens on the phone goes through
+// `dialog_sheet`, and its OK/Cancel row through `dialogs::buttons`, which lands in the sheet's footer.
+
+/// The touch target of a dialog control (buttons, checkboxes, radio buttons, combo boxes, text
+/// fields): Android's 48 pt minimum.
+pub const TOUCH_H: f32 = 48.0;
+/// A sheet's title row: the dialog name and its close button.
+const SHEET_TITLE_H: f32 = 56.0;
+/// The pinned action row: one 48 pt row of buttons with 12 pt above and below.
+const SHEET_FOOTER_H: f32 = TOUCH_H + 24.0;
+/// The gutter at a sheet's sides and under its content.
+const SHEET_GUTTER: f32 = 16.0;
+/// A sheet's top corner radius (Material's large shape).
+const SHEET_R: u8 = 28;
+/// A sheet taller than this share of the screen takes the whole screen.
+const SHEET_FULL: f32 = 0.85;
+
+fn sheet_height_key() -> egui::Id {
+    egui::Id::new("phone_dialog_sheet_h")
+}
+
+fn sheet_footer_key() -> egui::Id {
+    egui::Id::new("phone_dialog_footer")
+}
+
+fn sheet_wanted_key() -> egui::Id {
+    egui::Id::new("phone_dialog_footer_wanted")
+}
+
+/// The sheet's pinned action row this frame, or None when no sheet has one open. Asking for it also
+/// marks that the open sheet has an action row, so the next frame reserves the space for it.
+pub(crate) fn footer(ctx: &Context) -> Option<Rect> {
+    ctx.data_mut(|d| d.insert_temp(sheet_wanted_key(), true));
+    ctx.data(|d| d.get_temp::<Rect>(sheet_footer_key()))
+}
+
+/// Touch sizing for a dialog's controls, set once on the sheet's Ui and inherited by its children:
+/// a 48 pt minimum height for buttons, checkboxes, radio buttons, combo boxes and sliders
+/// (`interact_size`), taller padding for text fields, and 16 pt text.
+fn touch_style(ui: &mut Ui) {
+    let style = ui.style_mut();
+    style.spacing.interact_size.y = TOUCH_H;
+    style.spacing.button_padding = vec2(12.0, 12.0);
+    for ts in [egui::TextStyle::Body, egui::TextStyle::Button] {
+        style.text_styles.insert(ts, regular(16.0));
+    }
+}
+
+/// Shows a dialog as a bottom sheet on the phone: the full width of the screen, a title row with a
+/// close button, the body scrolling in the space left, and its action row pinned at the bottom
+/// (see `footer`). The sheet is as tall as its content was last frame, and the whole screen once
+/// that is over 85% of it. Escape closes it, as Back does, unless a popup is open over it. `body`
+/// returns true to close. Returns whether to close, and the sheet's response.
+pub(crate) fn dialog_sheet(ctx: &Context, id: egui::Id, title: &str, body: impl FnOnce(&mut Ui) -> bool) -> (bool, egui::Response) {
+    let m = md(ctx);
+    let screen = ctx.content_rect();
+    let max_h = screen.height() * SHEET_FULL;
+    let wanted = ctx.data_mut(|d| {
+        let w = d.get_temp::<bool>(sheet_wanted_key()).unwrap_or(true);
+        d.insert_temp(sheet_wanted_key(), false);
+        w
+    });
+    let total = ctx.data(|d| d.get_temp::<f32>(sheet_height_key())).unwrap_or(max_h);
+    let full = total >= max_h;
+    let h = if full { screen.height() } else { total };
+    let rect = Rect::from_min_max(Pos2::new(screen.left(), screen.bottom() - h), screen.right_bottom());
+    let footer_h = if wanted { SHEET_FOOTER_H } else { 0.0 };
+    let footer_rect = wanted.then(|| Rect::from_min_max(Pos2::new(rect.left(), rect.bottom() - SHEET_FOOTER_H), rect.right_bottom()));
+    let body_rect = Rect::from_min_max(Pos2::new(rect.left(), rect.top() + SHEET_TITLE_H), Pos2::new(rect.right(), rect.bottom() - footer_h));
+    ctx.data_mut(|d| match footer_rect {
+        Some(r) => {
+            d.insert_temp(sheet_footer_key(), r);
+        }
+        None => d.remove::<Rect>(sheet_footer_key()),
+    });
+    let mut close = false;
+    let out = egui::Area::new(id).order(Order::Foreground).fixed_pos(rect.min).constrain(false).movable(false).show(ctx, |ui| {
+        let radius = if full { CornerRadius::ZERO } else { CornerRadius { nw: SHEET_R, ne: SHEET_R, sw: 0, se: 0 } };
+        ui.painter().rect_filled(rect, radius, m.surface_low);
+        let title_rect = Rect::from_min_size(rect.min, vec2(rect.width(), SHEET_TITLE_H));
+        ui.painter().text(
+            Pos2::new(title_rect.left() + SHEET_GUTTER, title_rect.center().y),
+            Align2::LEFT_CENTER,
+            crate::tl!(title),
+            medium(18.0),
+            m.on_surface,
+        );
+        let mut title_ui = ui.new_child(egui::UiBuilder::new().max_rect(title_rect).layout(Layout::right_to_left(egui::Align::Center)));
+        close = icon_button(&mut title_ui, m, "close", "Close").clicked();
+        let mut body_ui = ui.new_child(
+            egui::UiBuilder::new().max_rect(body_rect.shrink2(vec2(SHEET_GUTTER, 0.0))).layout(Layout::top_down(egui::Align::Min)),
+        );
+        let scroll = egui::ScrollArea::vertical()
+            .id_salt(id.with("body"))
+            .auto_shrink([false, false])
+            .max_height(body_rect.height())
+            .show(&mut body_ui, |ui| {
+                touch_style(ui);
+                body(ui)
+            });
+        close |= scroll.inner;
+        let total_now = SHEET_TITLE_H + scroll.content_size.y + SHEET_GUTTER + footer_h;
+        ctx.data_mut(|d| d.insert_temp(sheet_height_key(), total_now));
+        if let Some(f) = footer_rect {
+            ui.painter().line_segment([f.left_top(), f.right_top()], egui::Stroke::new(1.0, m.outline_variant));
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) && !egui::Popup::is_any_open(ui.ctx()) && !crate::colors::is_open(ui.ctx()) {
+            close = true;
+        }
+    });
+    (close, out.response)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

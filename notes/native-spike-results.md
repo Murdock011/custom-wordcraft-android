@@ -482,3 +482,41 @@ Gaps: preedit draws over text after the caret (no shift); composition caret alwa
 - Typing at caret: PASS. Backspace: PASS (`g21b_sanity.png`).
 - b. suggestion tap, c. autocorrect, d. backspace into a word, f. cafe: NOT RUN (composition unreachable).
 - Temporary debug code: removed; no debug lines in the current build.
+
+## Update 22: Phone-style dialogs (2026-10-25)
+Design (one host, not per dialog):
+- `phone::dialog_sheet` (crates/ui-egui/src/phone.rs) is the phone host. `dialogs::show` uses it when `app.phone`; the desktop `egui::Window` path is unchanged. The Colors dialog (`colors::show`) uses it on the phone too.
+- Sheet: full screen width, 28 pt top corners, 56 pt title row with a 48 pt close button. Body scrolls in the space left. Sheet height = content height measured last frame, capped at 85% of the screen; above that it takes the whole screen. Sits on `content_rect`, so it rises above the keyboard when the window shrinks.
+- Action row: `dialogs::buttons` (and the Colors OK/Cancel) draw into a pinned footer when a sheet is open (`phone::footer`, `dialogs::footer_buttons`). Cancel left, OK right, 50/50, 48 pt tall. This is a choice: Material order (primary on the right) on the phone; desktop keeps its platform order.
+- Escape closes a sheet (as Back does), unless a popup is open over it. `can_go_back` now includes an open Colors dialog.
+- Touch sizing set once on the sheet's Ui (`phone::touch_style`): `interact_size.y` = 48 (buttons, checkboxes, radio, combo boxes, sliders), button padding 12, body/button text 16 pt.
+- Not done: text fields. egui's TextEdit ignores `interact_size`; its height needs `min_size` per call site. Listed as follow-up.
+
+Files changed:
+- `crates/ui-egui/src/phone.rs`: `TOUCH_H`, `footer`, `touch_style`, `dialog_sheet`.
+- `crates/ui-egui/src/dialogs.rs`: `footer_buttons`, `buttons` (footer first, inline fallback), `show` (phone branch).
+- `crates/ui-egui/src/colors.rs`: `show` (phone sheet), body label hidden on phone, footer buttons.
+- `crates/ui-egui/src/lib.rs`: `can_go_back` includes Colors; tests `phone_dialog_is_a_sheet_with_48_pt_buttons`, `phone_dialog_buttons_stay_on_a_short_screen`, `desktop_dialog_keeps_its_window`.
+
+Tests:
+- `cargo test -p wordcraft-ui-egui`: 847 passed, 0 failed, 2 ignored.
+- `cargo test -p wordcraft-android`: 10 passed.
+- `cargo xtask wasm`: ok (16 crates).
+- New tests pass (400x800 sheet: buttons >= 48 pt, Cancel left, OK right, Escape closes; 400x420 short screen: OK on screen; 1440x900 desktop: floating window kept, buttons not enlarged).
+- Clippy: not run.
+
+Device (emulator-5554, `ai.storyteller.wordcraft.native`, Word force-stopped first):
+- Built with build-native.sh x86_64 (OK), installed (`Success`), focus checked before each screenshot.
+- `d22_00_launch.png`: Recover page on launch (existing drafts), not a dialog.
+- `d22_01_editor.png`, `d22_02_nokbd.png`, `d22_03_more.png`: editor, More sheet. Not dialogs.
+- `d22_04_search.png`, `d22_05_search_font.png`, `d22_06_search_para.png`: Search Commands opens as a full-width bottom sheet with a close button, the new host. PASS for the host (visual). Its result rows are 48 pt tall.
+- NOT RUN: Picture > Size, Picture > Crop, Table > Split Cells, Table > Table Properties, Font, Paragraph dialog screenshots (`d22_*`). Command search lists commands, not dialog launchers, so I did not reach them. Keyboard-over-text-field check: NOT RUN.
+
+Per-dialog results: not verified on device. Headless checks only (sheet layout and footer position in tests).
+
+Follow-ups (next round):
+1. Text fields in dialogs need `min_size` (48 pt) per call site (TextEdit ignores interact_size). Count and fix in dialogs*.rs.
+2. Dialogs whose OK/Cancel are inline `ui.button` rows (not `dialogs::buttons`) are not pinned; move them to `footer_buttons`.
+3. file_browser.rs and read_aloud.rs and zotero alert still use desktop windows on the phone.
+4. Fixed widths (`set_min_width(340)` in body code, two-column grids) to check on device for Size, Crop, Split Cells, Table Properties.
+5. On-device runs of the four named dialogs and Font/Paragraph, with the keyboard-open check.

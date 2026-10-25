@@ -2423,7 +2423,7 @@ impl WordApp {
     /// so the app stays open). The web shell tells the Android
     /// shell (`window.wcCanGoBack`).
     pub fn can_go_back(&self, ctx: &egui::Context) -> bool {
-        self.dialog.is_some() || phone::can_go_back(ctx) || self.ui.backstage || self.canvas.context_menu_open || !self.session.sel.is_collapsed()
+        self.dialog.is_some() || self.colors.is_some() || phone::can_go_back(ctx) || self.ui.backstage || self.canvas.context_menu_open || !self.session.sel.is_collapsed()
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
@@ -4853,6 +4853,64 @@ mod tests {
             .drop_without_applying_deltas();
         };
         (ctx, frame)
+    }
+
+    /// Update 22: on a phone a dialog is a full-width bottom sheet with 48 pt OK and Cancel buttons
+    /// pinned at its bottom, and Escape closes it.
+    #[test]
+    fn phone_dialog_is_a_sheet_with_48_pt_buttons() {
+        let mut a = app();
+        a.dialog = dialogs::Dialog::open("font", &mut a);
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(400.0, 800.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        assert!(h.state().phone, "a 400 pt wide screen is a phone");
+        let ok = h.get_by_label("OK").rect();
+        let cancel = h.get_by_label("Cancel").rect();
+        assert!(ok.height() >= 48.0 && cancel.height() >= 48.0, "buttons are 48 pt tall: {ok:?} {cancel:?}");
+        assert!(cancel.right() <= 200.0 && ok.left() >= 200.0, "Cancel left, OK right, 50/50: {cancel:?} {ok:?}");
+        assert!(ok.right() <= 400.0 && ok.bottom() <= 800.0, "the buttons are on screen: {ok:?}");
+        assert!(ok.bottom() > 700.0, "pinned at the bottom of the sheet: {ok:?}");
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        assert!(h.state().dialog.is_none(), "Escape closes the sheet");
+    }
+
+    /// Update 22: with the window short (the keyboard up), the pinned buttons stay on screen.
+    #[test]
+    fn phone_dialog_buttons_stay_on_a_short_screen() {
+        let mut a = app();
+        a.dialog = dialogs::Dialog::open("font", &mut a);
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(400.0, 420.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let ok = h.get_by_label("OK").rect();
+        assert!(ok.height() >= 48.0 && ok.bottom() <= 420.0, "OK stays reachable: {ok:?}");
+    }
+
+    /// Update 22: on a desktop window a dialog keeps its floating window and desktop-sized buttons.
+    #[test]
+    fn desktop_dialog_keeps_its_window() {
+        let mut a = app();
+        a.dialog = dialogs::Dialog::open("font", &mut a);
+        let mut h = harness(a);
+        h.run_steps(4);
+        assert!(!h.state().phone);
+        let window = h.ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", "Font")))).expect("the dialog is a window");
+        assert!(window.width() < 1440.0 * 0.6, "a desktop dialog is not full width: {window:?}");
+        assert!(h.get_by_label("OK").rect().height() < 40.0, "desktop buttons keep their size");
     }
 
     /// Native Android keeps the platform double-click delay, so a double-tap selects the word.

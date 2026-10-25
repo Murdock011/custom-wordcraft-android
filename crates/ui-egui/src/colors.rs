@@ -449,9 +449,22 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         ctx.data_mut(|m| m.insert_temp(open_flag_id(), false));
         return;
     };
-    let resp = egui::Modal::new(Id::new("wordcraft.colorsDialog")).show(ctx, |ui| body(ui, &mut d));
-    let mut done = resp.inner;
-    if done.is_none() && resp.should_close() {
+    let id = Id::new("wordcraft.colorsDialog");
+    let mut inner = None;
+    let closed = if app.phone {
+        // On the phone, a bottom sheet like the other dialogs (its OK and Cancel pinned at the bottom).
+        crate::phone::dialog_sheet(ctx, id, "Colors", |ui| {
+            inner = body(ui, &mut d);
+            inner.is_some()
+        })
+        .0
+    } else {
+        let resp = egui::Modal::new(id).show(ctx, |ui| body(ui, &mut d));
+        inner = resp.inner;
+        resp.should_close()
+    };
+    let mut done = inner;
+    if done.is_none() && closed {
         done = Some(false);
     }
     match done {
@@ -493,8 +506,11 @@ fn body(ui: &mut Ui, d: &mut ColorsDialog) -> Option<bool> {
     let t = Tokens::get(ui.ctx());
     let width = dialog_width(ui.ctx().content_rect().width());
     ui.set_width(width);
-    ui.label(egui::RichText::new(tl!("Colors")).font(crate::theme::semibold(14.0)));
-    ui.add_space(6.0);
+    // A phone sheet has the title in its title row.
+    if !crate::phone::active(ui.ctx()) {
+        ui.label(egui::RichText::new(tl!("Colors")).font(crate::theme::semibold(14.0)));
+        ui.add_space(6.0);
+    }
     ui.horizontal(|ui| {
         for (tab, label) in [(ColorsTab::Standard, "Standard"), (ColorsTab::Custom, "Custom")] {
             if ui.selectable_label(d.tab == tab, tl!(label)).clicked() {
@@ -528,6 +544,16 @@ fn body(ui: &mut Ui, d: &mut ColorsDialog) -> Option<bool> {
         });
     }
     let mut out = None;
+    let typing = ui.ctx().memory(|m| m.focused().is_some());
+    if let Some((ok, cancel)) = crate::dialogs::footer_buttons(ui, tl!("OK"), !typing, true) {
+        if cancel {
+            out = Some(false);
+        }
+        if ok {
+            out = Some(true);
+        }
+        return out;
+    }
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -535,7 +561,6 @@ fn body(ui: &mut Ui, d: &mut ColorsDialog) -> Option<bool> {
             if cancelb.clicked() {
                 out = Some(false);
             }
-            let typing = ui.ctx().memory(|m| m.focused().is_some());
             if okb.clicked() || (!typing && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
                 out = Some(true);
             }

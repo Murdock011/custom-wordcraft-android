@@ -1488,12 +1488,24 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
         Dialog::Layout(d) => d.title(),
     };
     let id = egui::Id::new(("dialog", title));
-    let window = crate::window_close::window(ctx, egui::Window::new(tl!(title)).id(id).collapsible(false).resizable(false));
-    let shown = place_dialog(ctx, id, window).show(ctx, |ui| {
-        ui.set_min_width(340.0);
-        close = body(app, ui, &mut d);
-    });
-    if let Some(shown) = &shown {
+    let response = if app.phone {
+        // A bottom sheet with a close button, its action row pinned at the bottom.
+        let (done, response) = crate::phone::dialog_sheet(ctx, id, title, |ui| body(app, ui, &mut d));
+        close = done;
+        Some(response)
+    } else {
+        let window = crate::window_close::window(ctx, egui::Window::new(tl!(title)).id(id).collapsible(false).resizable(false));
+        let shown = place_dialog(ctx, id, window).show(ctx, |ui| {
+            ui.set_min_width(340.0);
+            close = body(app, ui, &mut d);
+        });
+        if let Some(shown) = &shown {
+            count_dialog_frame(ctx, id);
+            close |= crate::window_close::show(ctx, &shown.response, &Tokens::get(ctx));
+        }
+        shown.map(|s| s.response)
+    };
+    if let Some(response) = &response {
         if let Dialog::SaveChanges { name, message, .. } = &d {
             let question = crate::i18n::fmt(tl!("Do you want to save changes to {name}?"), &[("name", name)]);
             let mut description = tl!("Your changes will be lost if you don't save them.").to_string();
@@ -1503,14 +1515,12 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
             }
             // This is an urgent decision, not another application window. Keep its context with
             // the focused choice, including when a failed Save brings the same prompt back.
-            ctx.accesskit_node_builder(shown.response.id, |node| {
+            ctx.accesskit_node_builder(response.id, |node| {
                 node.set_role(egui::accesskit::Role::AlertDialog);
                 node.set_label(question);
                 node.set_description(description);
             });
         }
-        count_dialog_frame(ctx, id);
-        close |= crate::window_close::show(ctx, &shown.response, &Tokens::get(ctx));
     }
     if close {
         app.canvas.want_focus = true;
@@ -1657,13 +1667,40 @@ pub(crate) fn ok_cancel_responses(ui: &mut Ui, draw_ok: impl FnOnce(&mut Ui) -> 
     }
 }
 
+/// The OK and Cancel pair in the phone sheet's pinned footer: Cancel left, OK right, each half the
+/// width and 48 pt tall. `enter` and `escape` say whether those keys press them. None when no
+/// sheet footer is open, so the caller lays its buttons out inline.
+pub(crate) fn footer_buttons(ui: &mut Ui, ok: &str, enter: bool, escape: bool) -> Option<(bool, bool)> {
+    let footer = crate::phone::footer(ui.ctx())?;
+    let mut fui = ui.new_child(egui::UiBuilder::new().max_rect(footer).layout(egui::Layout::left_to_right(egui::Align::Center)));
+    fui.set_clip_rect(footer);
+    let r = footer.shrink2(vec2(16.0, 12.0));
+    let w = ((r.width() - 8.0) / 2.0).max(0.0);
+    let h = crate::phone::TOUCH_H;
+    let cancel_r = egui::Rect::from_min_size(r.min, vec2(w, h));
+    let ok_r = egui::Rect::from_min_size(egui::pos2(r.right() - w, r.top()), vec2(w, h));
+    let cancelb = fui.put(cancel_r, egui::Button::new(tl!("Cancel")).min_size(vec2(w, h)));
+    let okb = fui.put(ok_r, crate::widgets::primary_button(&fui, ok).min_size(vec2(w, h)));
+    let mut out = (false, false);
+    if cancelb.clicked() || (escape && cancel_key_pressed(&fui)) {
+        out.1 = true;
+    }
+    if okb.clicked() || (enter && fui.input(|i| i.key_pressed(egui::Key::Enter))) {
+        out.0 = true;
+    }
+    Some(out)
+}
+
 pub(crate) fn buttons(ui: &mut Ui, ok: &str) -> (bool, bool) {
+    // Enter and Escape belong to the Colors dialog while it is open above this one.
+    let keys = !crate::colors::is_open(ui.ctx());
+    if let Some(r) = footer_buttons(ui, ok, keys, keys) {
+        return r;
+    }
     let mut r = (false, false);
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // Enter and Escape belong to the Colors dialog while it is open above this one.
-            let keys = !crate::colors::is_open(ui.ctx());
             let (okb, cancelb) = ok_cancel_responses(ui, |ui| ui.add(crate::widgets::primary_button(ui, ok)), tl!("Cancel"));
             if cancelb.clicked() || (keys && cancel_key_pressed(ui)) {
                 r.1 = true;
