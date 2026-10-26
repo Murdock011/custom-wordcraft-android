@@ -725,6 +725,50 @@ pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, accent: Color32) {
             pen.circle(10.0, 10.0, 6.0, c);
             pen.fill(&[(14.5, 3.0), (17.5, 6.0), (13.5, 7.0)], a);
         }
+        // Rotate: a curved arrow over the top, clockwise (Right) or counter-clockwise (Left).
+        "rotateLeft" | "rotateRight" => {
+            let mirror = name == "rotateRight";
+            let to_screen = |x: f32, y: f32| if mirror { (20.0 - x, y) } else { (x, y) };
+            let (a0, a1) = ((-20.0f32).to_radians(), 200.0f32.to_radians());
+            let arc: Vec<(f32, f32)> = (0..=16)
+                .map(|i| {
+                    let t = a0 + (a1 - a0) * i as f32 / 16.0;
+                    to_screen(10.0 + 6.0 * t.cos(), 10.0 - 6.0 * t.sin())
+                })
+                .collect();
+            pen.line_c(&arc, c);
+            // The arrowhead sits at the end of the arc, along its tangent.
+            let (s, co) = (a1.sin(), a1.cos());
+            let (e, t, n) = ((10.0 + 6.0 * co, 10.0 - 6.0 * s), (-s, -co), (co, -s));
+            let tip = to_screen(e.0 + t.0 * 2.8, e.1 + t.1 * 2.8);
+            let b1 = to_screen(e.0 + n.0 * 2.2, e.1 + n.1 * 2.2);
+            let b2 = to_screen(e.0 - n.0 * 2.2, e.1 - n.1 * 2.2);
+            pen.fill(&[tip, b1, b2], a);
+        }
+        // Flip: two triangles mirrored across a dashed line (vertical for H, horizontal for V).
+        "flipH" => {
+            for y in [2.0, 5.0, 8.0, 11.0, 14.0, 17.0] {
+                pen.line_c(&[(10.0, y), (10.0, y + 1.5)], a);
+            }
+            pen.closed(&[(3.0, 6.0), (3.0, 14.0), (8.0, 10.0)], c);
+            pen.fill(&[(17.0, 6.0), (17.0, 14.0), (12.0, 10.0)], a);
+        }
+        "flipV" => {
+            for x in [2.0, 5.0, 8.0, 11.0, 14.0, 17.0] {
+                pen.line_c(&[(x, 10.0), (x + 1.5, 10.0)], a);
+            }
+            pen.closed(&[(6.0, 3.0), (14.0, 3.0), (10.0, 8.0)], c);
+            pen.fill(&[(6.0, 17.0), (14.0, 17.0), (10.0, 12.0)], a);
+        }
+        // Delete: a bin with a lid and a handle.
+        "trash" => {
+            pen.line(&[(3.5, 5.0), (16.5, 5.0)]);
+            pen.line(&[(8.0, 5.0), (8.0, 3.0), (12.0, 3.0), (12.0, 5.0)]);
+            pen.closed(&[(5.0, 5.0), (6.0, 17.5), (14.0, 17.5), (15.0, 5.0)], c);
+            for x in [8.5, 10.0, 11.5] {
+                pen.line_c(&[(x, 8.0), (x, 14.5)], a);
+            }
+        }
         "indentLeft" | "indentRight" | "spaceBefore" | "spaceAfter" => {
             pen.lines(3.0, 17.0, &[6.0, 10.0, 14.0]);
             pen.fcircle(if name.contains("Right") { 15.0 } else { 5.0 }, 10.0, 1.6, a);

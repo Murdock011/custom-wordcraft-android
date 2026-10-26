@@ -1166,3 +1166,8 @@ Document1 (one unsaved "x", test data from an earlier agent) was discarded with 
 3. Earlier recipe (`adb shell input text q`): produced "Thursqday" (`u44-13-adbq.png`). Back, then a tap at the same spot, then `keyevent 67` removed the "s", not the "q", leaving "Thurqday" (`u44-14-adbbksp.png`). Cause: the tap put the caret between "s" and "q", so Backspace deleted the "s" as it should. The test tap was one character off. This is not a composing bug, and no fix was made.
 
 Summary: neither bug reproduced. No code change. `cargo test` not run (no code changed).
+## Update 43: Picture tab icon bar (2026-10-26)
+1. Phone Picture tab is an icon bar like Table and Layout: `phone::PICTURE_BAR` (Size, Crop, Rotate Right, Rotate Left, Flip Horizontal, Flip Vertical, Reset Picture, Delete Picture), two rows of four, 48 pt. Shown through the same `compact_bar` and `compact_tab_bar`, dispatched by `pick_row`. The bar's rows are not repeated in the list below; the style, effect and correction rows and the wrap tiles stay there.
+2. New icons in `icons.rs` (original, drawn in code): `rotateRight` and `rotateLeft` (curved arrow, clockwise and counter-clockwise), `flipH` and `flipV` (two triangles across a dashed line), `trash` (bin). Reused: `size`, `crop`, `resetGraphic`.
+3. Renders (headless `ui_shot`, 412x915 pt at 2.625): `scratchpad/u43-before.png` (list only), `scratchpad/u43-after.png` (icon bar on top).
+4. Status: NOT fully verified. The root disk filled up during the run (`/tmp` at 0 bytes), so `cargo test -p wordcraft-ui-egui`, clippy and `cargo xtask wasm` did not complete. `cargo fmt --all --check` passed. Rerun the three gates on a machine with free disk before merging.

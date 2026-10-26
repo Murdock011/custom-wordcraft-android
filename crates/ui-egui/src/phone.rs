@@ -742,6 +742,18 @@ const LAYOUT_BAR: [BarButton; 4] = [
     ("breaks", "Breaks", "layout.break"),
 ];
 
+/// Picture's icon bar: size, crop, rotate, flip, reset and delete, two rows of four.
+const PICTURE_BAR: [BarButton; 8] = [
+    ("size", "Size", "picture.size"),
+    ("crop", "Crop", "ui.crop"),
+    ("rotateRight", "Rotate Right", "arrange.rotate.right"),
+    ("rotateLeft", "Rotate Left", "arrange.rotate.left"),
+    ("flipH", "Flip Horizontal", "arrange.flipH"),
+    ("flipV", "Flip Vertical", "arrange.flipV"),
+    ("resetGraphic", "Reset Picture", "picture.reset"),
+    ("trash", "Delete Picture", "text.delete"),
+];
+
 /// The icon bar a tab shows: none unless the compact tab bars are on.
 fn compact_bar(on: bool, tab: usize) -> &'static [BarButton] {
     if !on {
@@ -750,6 +762,7 @@ fn compact_bar(on: bool, tab: usize) -> &'static [BarButton] {
     match TABS.get(tab).copied() {
         Some("Table") => &TABLE_BAR,
         Some("Layout") => &LAYOUT_BAR,
+        Some("Picture") => &PICTURE_BAR,
         _ => &[],
     }
 }
