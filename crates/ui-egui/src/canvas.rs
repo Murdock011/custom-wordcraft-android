@@ -892,6 +892,13 @@ fn texel_aligned_rect(layout: Rect, texture_px: egui::Vec2, ppp: f32) -> Rect {
     Rect::from_min_size(pos2(snap(layout.min.x), snap(layout.min.y)), texture_px / ppp)
 }
 
+/// The strip a phone Web Layout sheet fills below its last page, down to the foot of the view
+/// (`clip`), so the white paper reaches the bottom of the screen as Word's mobile Web Layout does.
+/// None when the sheet already reaches the foot.
+fn web_sheet_fill(clip: Rect, sheet_bottom: f32) -> Option<Rect> {
+    (clip.bottom() > sheet_bottom).then(|| Rect::from_min_max(pos2(clip.left(), sheet_bottom), clip.right_bottom()))
+}
+
 /// Tile indices intersecting the view, in a fixed grid of raster pixels. The grid follows the
 /// document, not the viewport, so scrolling never changes tile contents or their cache keys.
 fn visible_tiles(page_rect: Rect, clip: Rect, screen_scale: f32, raster_scale: f32, tile_height_px: usize) -> std::ops::Range<usize> {
@@ -1326,6 +1333,14 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         let t0 = crate::now_ms();
         let mut rects = Vec::with_capacity(geo.rects.len());
         let content_origin = ui.min_rect().min;
+        // The phone's Web Layout sheet runs to the foot of the view, not just to the end of the text.
+        if app.phone && app.session.view.mode == wordcraft_layout::ViewMode::Web {
+            let sheet_bottom = geo.rects.last().map_or(content_origin.y, |r| content_origin.y + r.bottom());
+            if let Some(fill) = web_sheet_fill(clip, sheet_bottom) {
+                let paper = if app.session.view.dark_mode { Color32::from_gray(wordcraft_render::DARK_PAPER) } else { Color32::WHITE };
+                painter.rect_filled(fill, 0.0, paper);
+            }
+        }
         // The object a move has taken off its page: the page is drawn again without it (or it
         // would be on the page where it was and under the pointer at once).
         let hidden = app.canvas.dragged_off_page();
@@ -7223,6 +7238,18 @@ mod tests {
 #[cfg(test)]
 mod phone_menu_placement_tests {
     use super::*;
+
+    /// The white fill starts under the sheet's last page and runs to the view's foot; nothing is
+    /// filled once the sheet reaches the foot.
+    #[test]
+    fn web_sheet_fills_from_its_last_page_to_the_foot_of_the_view() {
+        let view = Rect::from_min_max(pos2(0.0, 0.0), pos2(412.0, 915.0));
+        let fill = web_sheet_fill(view, 240.0).expect("a short sheet leaves a gap");
+        assert_eq!(fill.min, pos2(0.0, 240.0), "starts under the last page");
+        assert_eq!(fill.max, pos2(412.0, 915.0), "full width, down to the foot");
+        assert!(web_sheet_fill(view, 915.0).is_none(), "a sheet at the foot needs no fill");
+        assert!(web_sheet_fill(view, 1200.0).is_none(), "nor a sheet that runs past it");
+    }
 
     /// The menu never covers the selection or either handle, for a selection mid-screen, a
     /// selection near the top (menu goes below) and one near the bottom (menu goes above).

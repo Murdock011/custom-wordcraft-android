@@ -1122,3 +1122,10 @@ Options considered and rejected in our code:
 - `TextEdit::interactive(false)` while focused: stops the tap from placing the caret, so moving the caret by tap would break.
 - Swallowing the press before TextEdit sees it: would also drop the caret placement and the selection drag, and needs a second input path for the same touch.
 Ceiling: fixing this needs a patched egui (skip the interrupt when no composition is open) or a patched egui-winit. Neither is in scope for this round.
+## Update 39: open on a blank document; blank page fills the screen
+
+Android: the app opens on a new blank document instead of the sample (`apps/wordcraft-android/src/app.rs`). The Start screen goes over it through `WordApp::start_screen()`, as the desktop app does with nothing to open; the option defaults to on and Android does not read prefs yet, so it shows. Recovery is unchanged.
+
+Phone Web Layout: the white sheet ended at the last page, so a blank document showed a short white block with grey below. `canvas.rs` now paints the paper colour from the last page down to the foot of the view (phone, Web Layout only; `web_sheet_fill`). Desktop is untouched.
+
+Verified: `ui_shot` at 412x915 pt, scale 2.625, blank document. Before: white to about the top fifth of the height, grey below. After: white to the bottom, under the floating toolbar. Host test `canvas::phone_menu_placement_tests::web_sheet_fills_from_its_last_page_to_the_foot_of_the_view`. `cargo test -p wordcraft-ui-egui -p wordcraft-android` passes; `cargo xtask wasm` passes. Not verified: the Android build itself (no NDK here, so `app.rs` is not compiled), the Start screen shot, and a device check. In the after shot the caret was not visible (blink phase, not investigated).

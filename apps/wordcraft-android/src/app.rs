@@ -1,4 +1,5 @@
-//! The desktop/web `WordApp` on the native window, opened on the bundled sample document.
+//! The desktop/web `WordApp` on the native window, opened on a blank document (File › Home over it
+//! when the Start screen option is on, as the desktop app does with nothing to open).
 //!
 //! Keyboard input comes from the Kotlin `InputConnection` (`ImeView`, MainActivity.kt) through the
 //! queue in `ime.rs`. Each frame the queued messages become egui IME and key events, which the
@@ -48,7 +49,11 @@ pub struct Shell {
 
 impl Shell {
     pub fn new() -> Self {
-        let mut session = Session::new(wordcraft_engine::sample::sample_document());
+        // A blank document on the session's region, as File › New makes it. Nothing to open is the
+        // desktop's start-up (`apps/wordcraft/src/main.rs`), so the Start screen goes over it below.
+        let mut session = Session::new(wordcraft_engine::doc::Document::new());
+        let blank = session.blank_document();
+        session.set_document(blank);
         // Read Aloud speaks through Android's TextToSpeech (`speech.rs`, MainActivity.kt), not a program.
         session.read_aloud.use_host(std::sync::Arc::new(crate::speech::AndroidSpeech));
         let saves = AsyncSaves::default();
@@ -103,6 +108,8 @@ impl Shell {
                 log::warn!("local recovery unavailable: {e}");
             }
         }
+        // Nothing to open: Home comes up over the blank document when the Start screen option is on.
+        app.start_screen();
         let recent = files::load_recent();
         app.ui.recent = recent.clone();
         Self { app, pending: Vec::new(), held: None, applying: false, drained: 0, saves, inbox, saved_recent: recent }
