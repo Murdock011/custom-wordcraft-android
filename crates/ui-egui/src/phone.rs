@@ -20,8 +20,6 @@ const ICON_BTN: f32 = 48.0;
 const LIST_ROW_H: f32 = 48.0;
 /// Space between the floating toolbar and the bottom of the window.
 const FLOAT_GAP: f32 = 16.0;
-/// Corner radius of the floating toolbar and the bottom sheet.
-
 /// Material 3 colour roles for the phone layout, light or dark as the app's theme is.
 #[derive(Clone, Copy)]
 pub struct Md {
@@ -488,6 +486,11 @@ pub fn bottom_bar(app: &mut WordApp, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         back_step(&ctx);
+    }
+    // Read mode is for reading: the formatting bar stays away, and the top bar keeps the Read buttons.
+    if app.session.view.read_mode {
+        set_menu(&ctx, None);
+        return;
     }
     if pill_hidden(&ctx) {
         // Keep the keyboard tracking current while the bar is out of the way.
@@ -1873,8 +1876,8 @@ mod tests {
 
     #[test]
     fn every_tab_has_rows() {
-        for tab in 0..TABS.len() {
-            assert!(!rows(tab).is_empty(), "tab {} has no rows", TABS[tab]);
+        for (tab, name) in TABS.iter().enumerate() {
+            assert!(!rows(tab).is_empty(), "tab {} has no rows", name);
         }
     }
 }

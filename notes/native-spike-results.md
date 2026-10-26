@@ -1171,3 +1171,7 @@ Summary: neither bug reproduced. No code change. `cargo test` not run (no code c
 2. New icons in `icons.rs` (original, drawn in code): `rotateRight` and `rotateLeft` (curved arrow, clockwise and counter-clockwise), `flipH` and `flipV` (two triangles across a dashed line), `trash` (bin). Reused: `size`, `crop`, `resetGraphic`.
 3. Renders (headless `ui_shot`, 412x915 pt at 2.625): `scratchpad/u43-before.png` (list only), `scratchpad/u43-after.png` (icon bar on top).
 4. Status: NOT fully verified. The root disk filled up during the run (`/tmp` at 0 bytes), so `cargo test -p wordcraft-ui-egui`, clippy and `cargo xtask wasm` did not complete. `cargo fmt --all --check` passed. Rerun the three gates on a machine with free disk before merging.
+
+## Update 45: no formatting bar in Read mode; clippy clean
+
+Update 45: no formatting bar in Read mode; clippy clean.
