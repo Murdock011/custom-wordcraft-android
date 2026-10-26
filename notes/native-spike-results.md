@@ -1114,3 +1114,11 @@ Device: Close from the drawer returned to the launcher (`u41b-*` screenshots). A
 ### Settings-field hide debounce (NOT DONE)
 Requested: debounce hide requests from MainActivity by ~150 ms, cancelled by a show.
 Why not: the hide is not a call our Kotlin makes. egui-winit's `set_ime_allowed(false)` reaches GameActivity's `gti.InputConnection.setSoftKeyboardActive(false, ...)`, which is `public final` in games-activity 4.0.0 and calls its own final `InputMethodManager` field (`imm`), obtained in the constructor. The poll's `hideKeyboard()` does not run while a settings field keeps `output.ime` set. Subclassing or wrapping that path would need a patched GameActivity or egui-winit, the same blocker as Update 41 item 1.
+
+## Update 41c: flicker still open (2026-10-26)
+Status: not fixed. No code change.
+What was checked: egui-0.36.2 `widgets/text_edit/builder.rs` (around line 816) calls `ui.memory_mut(|mem| mem.request_focus(response.id))` whenever `did_interact || response.clicked()` after a pointer press inside the field, even when the field already has focus. `request_focus` always sets the interrupt flag (`memory/mod.rs:918-920`), so each tap in a field still produces the winit toggle and the hide and show pair.
+Options considered and rejected in our code:
+- `TextEdit::interactive(false)` while focused: stops the tap from placing the caret, so moving the caret by tap would break.
+- Swallowing the press before TextEdit sees it: would also drop the caret placement and the selection drag, and needs a second input path for the same touch.
+Ceiling: fixing this needs a patched egui (skip the interrupt when no composition is open) or a patched egui-winit. Neither is in scope for this round.
