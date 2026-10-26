@@ -1148,3 +1148,12 @@ Verified on the emulator (`wc35`, x86_64, Gboard; Samsung Keyboard not available
 - e. After returning, tapping the document brings the keyboard up (`u42-e3-tap-after-return.png`).
 Not verified: the pre-fix build did not show the bug on Gboard, so these passes do not prove the fix changed the outcome. Samsung Keyboard is untested.
 `cargo test -p wordcraft-android`: 28 passed.
+
+## Update 44: typing rechecks (Rent is the, Thursdaqy) (2026-10-26)
+Status: blocked before the checks. Neither bug was tested, so neither is reproduced or fixed. No code change.
+
+Steps (emulator-5554, Word force-stopped, WordCraft launched): the app opened on a scratch "Document1" holding one unsaved "x" instead of Home. Home (drawer) showed "Studio handbook (sample)", but tapping it raised the save prompt for Document1 (Save / Don't Save / Cancel). Cancel was tapped, so nothing was saved or discarded, and the unsaved "x" was left as it was. The sample did not open, so the two typing steps were not run.
+
+Screenshots (`~/.cache/wc-spike/`): `u44-0-launch.png` (Document1 on launch), `u44-0d-home.png` (Home), `u44-1-sample.png` (save prompt), `u44-2b-cancel.png` (after Cancel).
+
+Next: choose Don't Save on Document1 (or Save) to reach the sample, then run the "Rent is the" and "Thursdaqy" steps.
