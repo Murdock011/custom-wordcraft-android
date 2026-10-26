@@ -632,7 +632,7 @@ pub fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     // No gap between rows: the 48 pt rows alone set the pitch.
     ui.spacing_mut().item_spacing.y = 0.0;
     if in_more {
-        if list_row(ui, m, &crate::tl!("Back").to_string(), "chevronLeft", false).clicked() {
+        if list_row(ui, m, crate::tl!("Back"), "chevronLeft", false).clicked() {
             ctx.data_mut(|d| d.insert_temp(more_id, false));
         }
         for (label, icon, id, params) in [
@@ -643,7 +643,7 @@ pub fn context_menu(app: &mut WordApp, ui: &mut Ui) {
             ("Paragraph…", "lineSpacing", "ui.dialog", json!({"name": "paragraph"})),
             ("Link…", "link", "ui.dialog", json!({"name": "link"})),
         ] {
-            if list_row(ui, m, &crate::tl!(label).to_string(), icon, false).clicked() {
+            if list_row(ui, m, crate::tl!(label), icon, false).clicked() {
                 let _ = app.run(id, params);
                 ui.close();
             }
@@ -682,18 +682,18 @@ pub fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     {
         let on = crate::widgets::enabled(app, id) && (selected || !matches!(id, "edit.cut" | "edit.copy"));
         ui.add_enabled_ui(on, |ui| {
-            if list_row(ui, m, &crate::tl!(label).to_string(), icon, false).clicked() {
+            if list_row(ui, m, crate::tl!(label), icon, false).clicked() {
                 let _ = app.run(id, json!({}));
                 ui.close();
             }
         });
     }
-    if list_row(ui, m, &crate::tl!("New Comment").to_string(), "comment", false).clicked() {
+    if list_row(ui, m, crate::tl!("New Comment"), "comment", false).clicked() {
         set_menu(&ctx, Some(3));
         comment_field(&ctx, CommentTarget::New);
         ui.close();
     }
-    if list_row(ui, m, &crate::tl!("More").to_string(), "more", true).clicked() {
+    if list_row(ui, m, crate::tl!("More"), "more", true).clicked() {
         ctx.data_mut(|d| d.insert_temp(more_id, true));
     }
 }
@@ -845,7 +845,7 @@ fn menu(app: &mut WordApp, ui: &mut Ui, tab: usize) {
             ui.horizontal(|ui| {
                 tab_dropdown(ui, m, &ctx, tab, shown_tabs(app));
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                    if text_button(ui, m, &crate::tl!("Close").to_string(), m.primary, 48.0).clicked() {
+                    if text_button(ui, m, crate::tl!("Close"), m.primary, 48.0).clicked() {
                         set_menu(&ctx, None);
                     }
                     if icon_button(ui, m, "redo", "Redo").clicked() {
@@ -875,10 +875,10 @@ fn menu(app: &mut WordApp, ui: &mut Ui, tab: usize) {
                 }
                 if tab == TABLE_TAB {
                     ui.add_space(8.0);
-                    tile_section(ui, m, &crate::tl!("Cell Alignment").to_string());
+                    tile_section(ui, m, crate::tl!("Cell Alignment"));
                     align_tiles(app, ui, m);
                     ui.add_space(8.0);
-                    tile_section(ui, m, &crate::tl!("Shading").to_string());
+                    tile_section(ui, m, crate::tl!("Shading"));
                     shading_swatches(app, ui, m);
                 }
                 if tab == PICTURE_TAB {
@@ -904,18 +904,18 @@ fn font_row(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context) {
         if text_button(ui, m, &font, m.on_surface, 170.0).clicked() {
             set_sub(ctx, Some(Sub::Font));
         }
-        if text_button(ui, m, "−", m.primary, 44.0).clicked() {
-            if let Some(x) = wordcraft_engine::cmd::format::SIZES.iter().rev().copied().find(|x| *x < cur) {
-                let _ = app.run("format.size", json!({"size": x}));
-            }
+        if text_button(ui, m, "−", m.primary, 44.0).clicked()
+            && let Some(x) = wordcraft_engine::cmd::format::SIZES.iter().rev().copied().find(|x| *x < cur)
+        {
+            let _ = app.run("format.size", json!({"size": x}));
         }
         if text_button(ui, m, &size, m.on_surface_variant, 56.0).clicked() {
             set_sub(ctx, Some(Sub::Size));
         }
-        if text_button(ui, m, "+", m.primary, 44.0).clicked() {
-            if let Some(x) = wordcraft_engine::cmd::format::SIZES.iter().copied().find(|x| *x > cur) {
-                let _ = app.run("format.size", json!({"size": x}));
-            }
+        if text_button(ui, m, "+", m.primary, 44.0).clicked()
+            && let Some(x) = wordcraft_engine::cmd::format::SIZES.iter().copied().find(|x| *x > cur)
+        {
+            let _ = app.run("format.size", json!({"size": x}));
         }
     });
     egui::ScrollArea::horizontal().id_salt("phone_font_row").scroll_source(egui::scroll_area::ScrollSource::ALL).show(ui, |ui| {
@@ -1077,7 +1077,7 @@ fn format_page(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context, s: Sub) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(crate::tl!(title).to_string()).strong());
         ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-            if text_button(ui, m, &crate::tl!("Back").to_string(), m.primary, 72.0).clicked() {
+            if text_button(ui, m, crate::tl!("Back"), m.primary, 72.0).clicked() {
                 sub_back(ctx);
             }
         });
@@ -1101,16 +1101,16 @@ fn format_page(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context, s: Sub) {
             let cur = st.get("size").and_then(Value::as_f64).unwrap_or(12.0) as f32;
             let sizes = wordcraft_engine::cmd::format::SIZES;
             ui.horizontal(|ui| {
-                if text_button(ui, m, "−", m.primary, 56.0).clicked() {
-                    if let Some(x) = sizes.iter().rev().copied().find(|x| *x < cur) {
-                        let _ = app.run("format.size", json!({"size": x}));
-                    }
+                if text_button(ui, m, "−", m.primary, 56.0).clicked()
+                    && let Some(x) = sizes.iter().rev().copied().find(|x| *x < cur)
+                {
+                    let _ = app.run("format.size", json!({"size": x}));
                 }
                 ui.label(egui::RichText::new(format!("{cur:.0}")).strong());
-                if text_button(ui, m, "+", m.primary, 56.0).clicked() {
-                    if let Some(x) = sizes.iter().copied().find(|x| *x > cur) {
-                        let _ = app.run("format.size", json!({"size": x}));
-                    }
+                if text_button(ui, m, "+", m.primary, 56.0).clicked()
+                    && let Some(x) = sizes.iter().copied().find(|x| *x > cur)
+                {
+                    let _ = app.run("format.size", json!({"size": x}));
                 }
             });
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -1180,7 +1180,7 @@ fn format_page(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context, s: Sub) {
         Sub::Comments => comments_page(app, ui, m, ctx),
         Sub::CommentInput => comment_input_page(app, ui, m, ctx),
         Sub::Colour => {
-            if list_row(ui, m, &crate::tl!("Automatic").to_string(), "fontcolor", false).clicked() {
+            if list_row(ui, m, crate::tl!("Automatic"), "fontcolor", false).clicked() {
                 let _ = app.run("format.color", json!({"color": "auto"}));
                 app.canvas.want_focus = false;
             }
@@ -1240,14 +1240,14 @@ fn comments_page(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context) {
                 }
                 ui.label(egui::RichText::new(text).color(m.on_surface));
                 ui.horizontal(|ui| {
-                    if text_button(ui, m, &crate::tl!("Reply").to_string(), m.primary, 64.0).clicked() {
+                    if text_button(ui, m, crate::tl!("Reply"), m.primary, 64.0).clicked() {
                         comment_field(ctx, CommentTarget::Reply(root));
                     }
                     let toggle = if resolved { crate::tl!("Reopen") } else { crate::tl!("Resolve") };
-                    if text_button(ui, m, &toggle.to_string(), m.primary, 80.0).clicked() {
+                    if text_button(ui, m, toggle, m.primary, 80.0).clicked() {
                         let _ = app.run("review.resolveComment", json!({"id": root}));
                     }
-                    if text_button(ui, m, &crate::tl!("Delete").to_string(), m.on_surface_variant, 72.0).clicked() {
+                    if text_button(ui, m, crate::tl!("Delete"), m.on_surface_variant, 72.0).clicked() {
                         let _ = app.run("review.deleteComment", json!({"id": id}));
                     }
                 });
@@ -1290,7 +1290,7 @@ fn comment_input_page(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context) {
                     finish_comment(ctx, target);
                 }
             }
-            if text_button(ui, m, &crate::tl!("Cancel").to_string(), m.primary, 80.0).clicked() {
+            if text_button(ui, m, crate::tl!("Cancel"), m.primary, 80.0).clicked() {
                 finish_comment(ctx, target);
             }
         });
@@ -1317,7 +1317,7 @@ fn draw_controls(app: &mut WordApp, ui: &mut Ui, m: Md) {
         "draw.pen"
     };
     ui.add_space(8.0);
-    tile_section(ui, m, &crate::tl!("Colour").to_string());
+    tile_section(ui, m, crate::tl!("Colour"));
     ui.horizontal_wrapped(|ui| {
         for hex in ["000000", "C00000", "0070C0", "00B050", "FFC000"] {
             if swatch(ui, m, Some(hex_colour(hex))).clicked() {
@@ -1326,10 +1326,10 @@ fn draw_controls(app: &mut WordApp, ui: &mut Ui, m: Md) {
         }
     });
     ui.add_space(8.0);
-    tile_section(ui, m, &crate::tl!("Thickness").to_string());
+    tile_section(ui, m, crate::tl!("Thickness"));
     ui.horizontal(|ui| {
         for (label, width) in [("Thin", 1.5), ("Medium", 3.0), ("Thick", 6.0)] {
-            if text_button(ui, m, &crate::tl!(label).to_string(), m.primary, 96.0).clicked() {
+            if text_button(ui, m, crate::tl!(label), m.primary, 96.0).clicked() {
                 let _ = app.run(tool, json!({"width": width}));
             }
         }
@@ -1340,7 +1340,7 @@ fn draw_controls(app: &mut WordApp, ui: &mut Ui, m: Md) {
 /// command, so the sheet adds no picture behaviour of its own.
 fn picture_controls(app: &mut WordApp, ui: &mut Ui, m: Md) {
     ui.add_space(8.0);
-    tile_section(ui, m, &crate::tl!("Wrap Text").to_string());
+    tile_section(ui, m, crate::tl!("Wrap Text"));
     ui.horizontal_wrapped(|ui| {
         ui.add_space(16.0);
         for (label, value) in [
@@ -1358,7 +1358,7 @@ fn picture_controls(app: &mut WordApp, ui: &mut Ui, m: Md) {
         }
     });
     ui.add_space(8.0);
-    tile_section(ui, m, &crate::tl!("Align").to_string());
+    tile_section(ui, m, crate::tl!("Align"));
     ui.horizontal(|ui| {
         ui.add_space(16.0);
         for (label, value) in [("Left", "left"), ("Center", "center"), ("Right", "right")] {
@@ -1368,7 +1368,7 @@ fn picture_controls(app: &mut WordApp, ui: &mut Ui, m: Md) {
         }
     });
     ui.add_space(8.0);
-    tile_section(ui, m, &crate::tl!("Alt Text").to_string());
+    tile_section(ui, m, crate::tl!("Alt Text"));
     alt_text_field(app, ui);
 }
 
