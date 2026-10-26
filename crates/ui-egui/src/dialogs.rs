@@ -2692,7 +2692,11 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             if *swallow {
                 ui.ctx().input_mut(|i| i.events.retain(|e| !swallow_shortcut_text(swallow, e)));
             }
-            let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(query)).hint_text(tl!("Type a command, e.g. \"insert table\"")).desired_width(380.0));
+            let r = ui.add(
+                crate::phone::touch_edit(ui, egui::TextEdit::singleline(query))
+                    .hint_text(tl!("Type a command, e.g. \"insert table\""))
+                    .desired_width(380.0),
+            );
             // Only when it lacks focus: `request_focus` always interrupts IME, and on X11 that
             // recreates the XIM context, so asking every frame left fcitx taking no keys (#2986).
             if !r.has_focus() {
@@ -2917,7 +2921,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label(tl!("Password:"));
-                let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(password.as_mut_string())).password(true).desired_width(220.0));
+                let r =
+                    ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(password.as_mut_string())).password(true).desired_width(220.0));
                 if password.is_empty() && !r.has_focus() {
                     r.request_focus();
                 }
@@ -2951,7 +2956,8 @@ fn body(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.add_space(4.0);
             egui::Grid::new("encrypt_password").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
                 ui.label(tl!("Password:"));
-                let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(password.as_mut_string())).password(true).desired_width(220.0));
+                let r =
+                    ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(password.as_mut_string())).password(true).desired_width(220.0));
                 if password.is_empty() && confirm.is_empty() && !r.has_focus() {
                     r.request_focus();
                 }
@@ -3263,7 +3269,10 @@ pub(crate) fn recipient_list(
             ui.horizontal(|ui| {
                 ui.allocate_exact_size(vec2(NUM_W, ROW_H - 4.0), Sense::hover());
                 for (i, f) in fields.iter_mut().enumerate() {
-                    ui.add_sized([CELL_W, ROW_H - 4.0], crate::phone::touch_edit(ui, egui::TextEdit::singleline(f)).font(egui::TextStyle::Button).hint_text(tl!("Field name")));
+                    ui.add_sized(
+                        [CELL_W, ROW_H - 4.0],
+                        crate::phone::touch_edit(ui, egui::TextEdit::singleline(f)).font(egui::TextStyle::Button).hint_text(tl!("Field name")),
+                    );
                     let x = ui.add_enabled(can_remove, egui::Button::new("×").small().min_size(vec2(X_W, X_W))).on_hover_text(tl!("Remove field"));
                     x_w = x.rect.width();
                     if x.clicked() {
@@ -3291,7 +3300,10 @@ pub(crate) fn recipient_list(
                         for (j, c) in row.iter_mut().enumerate() {
                             // Keyed on the record, not its place in the grid: when the view hides
                             // or moves rows, the keyboard can't land in another record (#1576).
-                            let cell = ui.add_sized([CELL_W, ROW_H - 4.0], crate::phone::touch_edit(ui, egui::TextEdit::singleline(c)).id_salt(("recipient_cell", r, j)));
+                            let cell = ui.add_sized(
+                                [CELL_W, ROW_H - 4.0],
+                                crate::phone::touch_edit(ui, egui::TextEdit::singleline(c)).id_salt(("recipient_cell", r, j)),
+                            );
                             if cell.has_focus() {
                                 focused = Some(cell.id);
                             }

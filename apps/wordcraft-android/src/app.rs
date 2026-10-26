@@ -8,10 +8,10 @@
 use std::sync::atomic::Ordering;
 
 use egui::{Event, ImeEvent, Key};
-use wordcraft_engine::doc::Pos;
 use wordcraft_engine::Session;
+use wordcraft_engine::doc::Pos;
 use wordcraft_ui_egui::async_saves::{AsyncSaves, SaveOutcome};
-use wordcraft_ui_egui::{Inbox, Services, WordApp, MAX_RECENT};
+use wordcraft_ui_egui::{Inbox, MAX_RECENT, Services, WordApp};
 
 use crate::files::{self, Done, Request};
 use crate::ime::{self, Msg, Op, Span};
@@ -341,7 +341,9 @@ impl eframe::App for Shell {
         ime::WANTS_KEYBOARD.store(wants, std::sync::atomic::Ordering::Relaxed);
         ime::CAN_GO_BACK.store(self.app.can_go_back(ui.ctx()), std::sync::atomic::Ordering::Relaxed);
         // egui-winit has no Android clipboard; copies (Copy, Cut, a text field's) go to ClipboardManager.
-        let copies: Vec<String> = ui.ctx().output(|o| o.commands.iter().filter_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None }).collect());
+        let copies: Vec<String> = ui
+            .ctx()
+            .output(|o| o.commands.iter().filter_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None }).collect());
         if let Some(t) = copies.into_iter().last() {
             crate::clip::copied(t);
         }

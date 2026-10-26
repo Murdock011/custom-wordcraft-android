@@ -206,7 +206,10 @@ fn compare_ui(app: &mut WordApp, ui: &mut Ui, f: &mut CompareForm) -> bool {
             ui.radio_value(&mut f.original_current, true, tl!("This document"));
             ui.horizontal(|ui| {
                 ui.radio_value(&mut f.original_current, false, "");
-                ui.add_enabled(browse, crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut f.original)).desired_width(170.0).hint_text(tl!("Another file")));
+                ui.add_enabled(
+                    browse,
+                    crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut f.original)).desired_width(170.0).hint_text(tl!("Another file")),
+                );
                 if ui.add_enabled(browse, egui::Button::new(tl!("Browse…"))).clicked() {
                     pick = Some(false);
                 }

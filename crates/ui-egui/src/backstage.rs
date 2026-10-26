@@ -789,9 +789,9 @@ fn open_page(app: &mut WordApp, ui: &mut Ui) {
     #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
     if offers_builtin_browser(app)
         && ui
-        .button(egui::RichText::new(tl!("Browse in WordCraft…")).font(medium(14.0)))
-        .on_hover_text(tl!("Open a file with WordCraft's own browser when the system file dialog doesn't appear."))
-        .clicked()
+            .button(egui::RichText::new(tl!("Browse in WordCraft…")).font(medium(14.0)))
+            .on_hover_text(tl!("Open a file with WordCraft's own browser when the system file dialog doesn't appear."))
+            .clicked()
     {
         let _ = app.run("ui.fileBrowser", json!({}));
     }

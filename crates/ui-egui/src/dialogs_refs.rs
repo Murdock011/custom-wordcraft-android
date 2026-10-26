@@ -1159,7 +1159,10 @@ fn source_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SourceForm) -> Next {
                     "tag" => tl!("Made from the author and year when empty"),
                     _ => "",
                 };
-                ui.add_enabled(!(edit && key == "tag"), crate::phone::touch_edit(ui, egui::TextEdit::singleline(v)).desired_width(260.0).hint_text(hint));
+                ui.add_enabled(
+                    !(edit && key == "tag"),
+                    crate::phone::touch_edit(ui, egui::TextEdit::singleline(v)).desired_width(260.0).hint_text(hint),
+                );
             }
             ui.end_row();
         }

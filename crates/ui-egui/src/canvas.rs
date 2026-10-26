@@ -7143,7 +7143,6 @@ mod tests {
         h.step();
         assert_eq!(ime_interrupted(&h), Some(false), "enter must not recreate the XIM context");
         assert!(h.state().canvas.focused, "enter leaves the canvas focused");
-
     }
 
     /// A tap on the focused canvas with nothing composing must not interrupt IME: on Android that

@@ -320,7 +320,6 @@ mod tests {
         }
     }
 
-
     use serde_json::{Value, json};
     use wordcraft_doc::{Document, StoryRef};
     use wordcraft_engine::Session;

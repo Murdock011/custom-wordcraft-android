@@ -5,9 +5,9 @@
 //! JNI symbol names need.
 
 use android_activity::AndroidApp;
+use jni::EnvUnowned;
 use jni::objects::{JObject, JString};
 use jni::sys::{jboolean, jint, jlong};
-use jni::EnvUnowned;
 use std::sync::atomic::Ordering;
 
 use crate::files;
@@ -20,10 +20,7 @@ fn android_main(app: AndroidApp) {
     if let Some(dir) = app.internal_data_path() {
         let _ = files::DIR.set(dir);
     }
-    let options = eframe::NativeOptions {
-        android_app: Some(app),
-        ..Default::default()
-    };
+    let options = eframe::NativeOptions { android_app: Some(app), ..Default::default() };
     let result = eframe::run_native("WordCraft", options, Box::new(|_cc| Ok(Box::new(crate::app::Shell::new()) as Box<dyn eframe::App>)));
     if let Err(e) = result {
         log::error!("eframe stopped: {e}");
@@ -60,42 +57,60 @@ pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nati
 /// none), then the paragraph text, U+0001 separated (`ime::encode`).
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeContext<'local>(mut env: EnvUnowned<'local>, _this: JObject<'local>) -> JString<'local> {
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeContext<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+) -> JString<'local> {
     env.with_env(|env| env.new_string(ime::context_text())).resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
 /// Whether egui wants the soft keyboard. Kotlin polls it to show or hide the keyboard.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeWantsKeyboard<'local>(_env: EnvUnowned<'local>, _this: JObject<'local>) -> jboolean {
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeWantsKeyboard<'local>(
+    _env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+) -> jboolean {
     ime::WANTS_KEYBOARD.load(Ordering::Relaxed) as jboolean
 }
 
 /// Whether the document canvas is being edited (see `ime::CANVAS_EDITING`).
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeCanvasEditing<'local>(_env: EnvUnowned<'local>, _this: JObject<'local>) -> jboolean {
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeCanvasEditing<'local>(
+    _env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+) -> jboolean {
     ime::CANVAS_EDITING.load(Ordering::Relaxed) as jboolean
 }
 
 /// Whether Close asked to end the app (see `ime::QUIT`).
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeQuitRequested<'local>(_env: EnvUnowned<'local>, _this: JObject<'local>) -> jboolean {
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeQuitRequested<'local>(
+    _env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+) -> jboolean {
     ime::QUIT.load(Ordering::Relaxed) as jboolean
 }
 
 /// Whether Android Back has a sheet, menu or Backstage to close.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeCanGoBack<'local>(_env: EnvUnowned<'local>, _this: JObject<'local>) -> jboolean {
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeCanGoBack<'local>(
+    _env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+) -> jboolean {
     ime::CAN_GO_BACK.load(Ordering::Relaxed) as jboolean
 }
 
 /// The next file request for Kotlin (see `files::take_request`); empty when there is none.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeTakeRequest<'local>(mut env: EnvUnowned<'local>, _this: JObject<'local>) -> JString<'local> {
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeTakeRequest<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+) -> JString<'local> {
     env.with_env(|env| env.new_string(files::take_request())).resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
@@ -119,7 +134,11 @@ pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nati
 /// A file operation failed on the Kotlin side: say why on the status line.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeNotice<'local>(mut env: EnvUnowned<'local>, _this: JObject<'local>, msg: JString<'local>) {
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeNotice<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    msg: JString<'local>,
+) {
     let msg: String = env.with_env(|env| msg.try_to_string(env)).resolve::<jni::errors::ThrowRuntimeExAndDefault>();
     files::notice(msg);
 }
@@ -157,21 +176,31 @@ pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nati
 /// The activity is being backgrounded: the next frame copies unsaved work to the recovery store.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeFlushRecovery<'local>(_env: EnvUnowned<'local>, _this: JObject<'local>) {
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeFlushRecovery<'local>(
+    _env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+) {
     ime::request_flush();
 }
 
 /// The next copy for the system clipboard, prefixed with `c`; empty when there is none.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeTakeClip<'local>(mut env: EnvUnowned<'local>, _this: JObject<'local>) -> JString<'local> {
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeTakeClip<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+) -> JString<'local> {
     env.with_env(|env| env.new_string(crate::clip::take_outgoing())).resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
 /// The system clipboard's text changed (or the window regained focus).
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeClip<'local>(mut env: EnvUnowned<'local>, _this: JObject<'local>, text: JString<'local>) {
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeClip<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    text: JString<'local>,
+) {
     let text: String = env.with_env(|env| text.try_to_string(env)).resolve::<jni::errors::ThrowRuntimeExAndDefault>();
     crate::clip::from_system(text);
 }
@@ -179,7 +208,11 @@ pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nati
 /// The system's night mode, at start and on each configuration change.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeSetNight<'local>(_env: EnvUnowned<'local>, _this: JObject<'local>, night: jboolean) {
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeSetNight<'local>(
+    _env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    night: jboolean,
+) {
     ime::NIGHT.store(night, Ordering::Relaxed);
     ime::wake();
 }
@@ -187,7 +220,12 @@ pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nati
 /// Padding that touch positions must be shifted by.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeSetInsets<'local>(_env: EnvUnowned<'local>, _this: JObject<'local>, left: jint, top: jint) {
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeSetInsets<'local>(
+    _env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    left: jint,
+    top: jint,
+) {
     ime::INSET_LEFT.store(left, Ordering::Relaxed);
     ime::INSET_TOP.store(top, Ordering::Relaxed);
 }
@@ -195,14 +233,23 @@ pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nati
 /// The next Read Aloud request for `TextToSpeech` (see `speech::take_request`); empty when there is none.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeTakeSpeech<'local>(mut env: EnvUnowned<'local>, _this: JObject<'local>) -> JString<'local> {
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeTakeSpeech<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+) -> JString<'local> {
     env.with_env(|env| env.new_string(crate::speech::take_request())).resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
 /// A sentence ended: `kind` 1 done, 2 failed with `msg` (see `speech::event`).
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeSpeechEvent<'local>(mut env: EnvUnowned<'local>, _this: JObject<'local>, id: jlong, kind: jint, msg: JString<'local>) {
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeSpeechEvent<'local>(
+    mut env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    id: jlong,
+    kind: jint,
+    msg: JString<'local>,
+) {
     let msg: String = env.with_env(|env| msg.try_to_string(env)).resolve::<jni::errors::ThrowRuntimeExAndDefault>();
     crate::speech::event(id as u64, kind, msg);
 }

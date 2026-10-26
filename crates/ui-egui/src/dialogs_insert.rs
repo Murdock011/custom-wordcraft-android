@@ -946,7 +946,8 @@ fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> bool {
             ui.label(egui::RichText::new(name).font(semibold(12.0)));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(tl!("from Unicode (hex)"));
-                let resp = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut f.code)).desired_width(70.0).font(egui::TextStyle::Monospace));
+                let resp = ui
+                    .add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut f.code)).desired_width(70.0).font(egui::TextStyle::Monospace));
                 if resp.changed() {
                     let code = f.code.clone();
                     f.select_code(&code);

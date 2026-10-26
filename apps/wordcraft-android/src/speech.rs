@@ -6,8 +6,8 @@
 //! no Android or engine dependency, so it runs in host tests.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Requests Kotlin has not taken yet. The player waits for each sentence, so this stays short.
 const MAX_QUEUED: usize = 64;

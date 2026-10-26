@@ -904,10 +904,7 @@ mod tests {
                 d.tab = tab;
                 let mut content = Rect::NOTHING;
                 for _ in 0..3 {
-                    let input = egui::RawInput {
-                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(screen, 800.0))),
-                        ..Default::default()
-                    };
+                    let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(screen, 800.0))), ..Default::default() };
                     ctx.run_ui(input, |ui| {
                         egui::Modal::new(Id::new("test.colorsDialog")).show(ui.ctx(), |ui| {
                             body(ui, &mut d);
@@ -916,10 +913,7 @@ mod tests {
                     })
                     .drop_without_applying_deltas();
                 }
-                assert!(
-                    content.left() >= 8.0 && content.right() <= screen - 8.0,
-                    "{tab:?} at {screen} pt wide: the dialog spans {content:?}"
-                );
+                assert!(content.left() >= 8.0 && content.right() <= screen - 8.0, "{tab:?} at {screen} pt wide: the dialog spans {content:?}");
             }
         }
     }

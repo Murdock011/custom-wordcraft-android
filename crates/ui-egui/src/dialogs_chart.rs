@@ -287,7 +287,10 @@ pub fn data_ui(app: &mut WordApp, ui: &mut Ui, f: &mut ChartDataForm) -> bool {
                         }
                         if let Some(row) = f.cells.get_mut(i) {
                             for cell in row.iter_mut() {
-                                ui.add_sized([CELL_W, ROW_H - 4.0], crate::phone::touch_edit(ui, egui::TextEdit::singleline(cell)).horizontal_align(egui::Align::Max));
+                                ui.add_sized(
+                                    [CELL_W, ROW_H - 4.0],
+                                    crate::phone::touch_edit(ui, egui::TextEdit::singleline(cell)).horizontal_align(egui::Align::Max),
+                                );
                                 ui.allocate_exact_size(vec2(X_W, ROW_H - 4.0), Sense::hover());
                             }
                         }

@@ -448,7 +448,13 @@ fn body(ui: &mut Ui, b: &mut FileBrowser, t: &Tokens) -> Option<Option<PathBuf>>
                     let (icon_x, icon_s, text_x, text_size) = if phone { (24.0, 22.0, 52.0, 16.0) } else { (14.0, 18.0, 30.0, 13.0) };
                     let icon = Rect::from_center_size(pos2(r.min.x + icon_x, r.center().y), vec2(icon_s, icon_s));
                     icons::paint(ui.painter(), icon, if e.dir { "folder" } else { "file" }, t.icon, t.accent);
-                    ui.painter().with_clip_rect(r).text(pos2(r.min.x + text_x, r.center().y), Align2::LEFT_CENTER, &e.name, regular(text_size), t.text);
+                    ui.painter().with_clip_rect(r).text(
+                        pos2(r.min.x + text_x, r.center().y),
+                        Align2::LEFT_CENTER,
+                        &e.name,
+                        regular(text_size),
+                        t.text,
+                    );
                     if resp.double_clicked() {
                         if e.dir {
                             go = Some(e.path.clone());
