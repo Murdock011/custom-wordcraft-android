@@ -1070,3 +1070,11 @@ Screenshots (`~/.cache/wc-spike/`):
 - `u38-3-after-tap.png`: paragraph after the tap.
 
 Result: no underline on "reason", and the line after "Rent is the" wraps normally. The Update 33 odd break came with a Gboard composing region, which Update 35's span change removed; the stray underline is gone too. Not checked: typing inside the paragraph to trigger a composing region.
+
+## Update 39: open on a blank document; blank page fills the screen
+
+Android: the app opens on a new blank document instead of the sample (`apps/wordcraft-android/src/app.rs`). The Start screen goes over it through `WordApp::start_screen()`, as the desktop app does with nothing to open; the option defaults to on and Android does not read prefs yet, so it shows. Recovery is unchanged.
+
+Phone Web Layout: the white sheet ended at the last page, so a blank document showed a short white block with grey below. `canvas.rs` now paints the paper colour from the last page down to the foot of the view (phone, Web Layout only; `web_sheet_fill`). Desktop is untouched.
+
+Verified: `ui_shot` at 412x915 pt, scale 2.625, blank document. Before: white to about the top fifth of the height, grey below. After: white to the bottom, under the floating toolbar. Host test `canvas::phone_menu_placement_tests::web_sheet_fills_from_its_last_page_to_the_foot_of_the_view`. `cargo test -p wordcraft-ui-egui -p wordcraft-android` passes; `cargo xtask wasm` passes. Not verified: the Android build itself (no NDK here, so `app.rs` is not compiled), the Start screen shot, and a device check. In the after shot the caret was not visible (blink phase, not investigated).
