@@ -1102,3 +1102,15 @@ Screenshots: `~/.cache/wc-spike/u41-*.png` (Recover, document, drawer before and
 ### Open items
 - Item 1: patch egui-winit or the settings focus path (see above).
 - Process left alive after Close: check whether a fresh launch always gets a window.
+
+## Update 41b: clean relaunch after Close (2026-10-26)
+Status: relaunch fixed and checked on the emulator. The settings-field debounce (Update 41 item 1) is NOT done: the hide cannot be intercepted from MainActivity (see below).
+
+### Relaunch after Close (FIXED)
+Cause: Close called `finish()` but left the process alive. The next launch reused that process, and the window had no input channel until the process was force-stopped.
+Fix: the quit branch in `MainActivity.kt` keyboard poll runs `nativeFlushRecovery()`, `finishAndRemoveTask()`, then `Process.killProcess` after 300 ms. The save prompt has already run before `ime::QUIT` is set (Save or Don't Save, then quit; Cancel does not quit), so the document is saved or discarded before the process ends.
+Device: Close from the drawer returned to the launcher (`u41b-*` screenshots). A relaunch with the launcher intent showed Recover, and a back-arrow then a tap in the body placed the caret and the keyboard came up (`u41b-2-touch.png`).
+
+### Settings-field hide debounce (NOT DONE)
+Requested: debounce hide requests from MainActivity by ~150 ms, cancelled by a show.
+Why not: the hide is not a call our Kotlin makes. egui-winit's `set_ime_allowed(false)` reaches GameActivity's `gti.InputConnection.setSoftKeyboardActive(false, ...)`, which is `public final` in games-activity 4.0.0 and calls its own final `InputMethodManager` field (`imm`), obtained in the constructor. The poll's `hideKeyboard()` does not run while a settings field keeps `output.ime` set. Subclassing or wrapping that path would need a patched GameActivity or egui-winit, the same blocker as Update 41 item 1.

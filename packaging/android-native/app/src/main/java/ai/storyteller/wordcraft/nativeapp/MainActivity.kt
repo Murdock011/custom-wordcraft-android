@@ -193,7 +193,10 @@ class MainActivity : GameActivity() {
             nativeTakeClip().takeIf { it.isNotEmpty() }?.let { clipboard.setPrimaryClip(ClipData.newPlainText("WordCraft", it.substring(1))) }
             drainSpeech()
             if (nativeQuitRequested()) {
-                finish()
+                // Close: the save prompt already ran. End the process too, so the next launch is a cold start.
+                nativeFlushRecovery()
+                finishAndRemoveTask()
+                handler.postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) }, 300)
                 return
             }
             // After a resume the keyboard stays down unless the document was being edited or the user taps.
