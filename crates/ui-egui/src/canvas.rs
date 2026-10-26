@@ -1164,7 +1164,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
             vec2((c.width * geo.scale).max(2.0), c.height * geo.scale),
         );
         // On the phone the floating bar sits over the bottom of the view: keep the caret line above it.
-        let below = if crate::phone::active(ui.ctx()) { crate::phone::bar_clearance(ui.ctx()) } else { 60.0 };
+        let below = if crate::phone::active(ui.ctx()) { crate::phone::bar_clearance(ui.ctx(), app.session.view.read_mode) } else { 60.0 };
         scroll_target = Some(Rect::from_min_max(r.min - vec2(40.0, 60.0), r.max + vec2(40.0, below)));
     }
     app.canvas.scroll_to_caret = false;

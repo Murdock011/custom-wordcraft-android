@@ -1175,3 +1175,10 @@ Summary: neither bug reproduced. No code change. `cargo test` not run (no code c
 ## Update 45: no formatting bar in Read mode; clippy clean
 
 Update 45: no formatting bar in Read mode; clippy clean.
+
+## Update 46: Read mode top bar layout
+
+1. Phone Read mode: the title reserved room for three icons, but Read mode has four (Search, Edit Document, Next, Previous), so Previous was drawn over the title. The title now reserves four icons in Read mode and three otherwise. Change: phone.rs top_bar.
+2. Read mode no longer reserves the floating-bar clearance (80 px) at the bottom: bar_clearance takes read_mode and returns 0. Change: phone.rs bar_clearance, canvas.rs caret scroll.
+3. Render (headless ui_shot, 412x915 pt at 2.625): scratchpad/u46-read.png. The title is cut with an ellipsis before the disabled chevron, then the next chevron, Edit Document and Search, with no overlap.
+4. Tests: cargo test -p wordcraft-ui-egui 873 + 10 passed. cargo clippy -p wordcraft-ui-egui --lib --tests --no-deps -- -D warnings clean. cargo fmt --all --check clean.

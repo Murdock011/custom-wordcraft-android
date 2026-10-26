@@ -136,8 +136,10 @@ pub fn top_bar(app: &mut WordApp, ui: &mut Ui) {
             if icon_button(ui, m, "file", "File").clicked() {
                 let _ = app.run("ui.backstage", json!({"value": true}));
             }
-            // The name gets what the icons on the right leave, and is cut short.
-            let name_w = (ui.available_width() - 3.0 * ICON_BTN - 8.0).max(0.0);
+            // The name gets what the icons on the right leave, and is cut short. Read mode has four
+            // icons there (Search, Edit Document, Next, Previous), editing three (Search, Redo, Undo).
+            let icons_right = if app.session.view.read_mode { 4.0 } else { 3.0 };
+            let name_w = (ui.available_width() - icons_right * ICON_BTN - 8.0).max(0.0);
             ui.add_sized(vec2(name_w, ICON_BTN), egui::Label::new(egui::RichText::new(title).font(medium(20.0)).color(m.on_surface)).truncate());
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                 if icon_button(ui, m, "find", "Search").clicked() {
@@ -460,8 +462,8 @@ const PILL_H: f32 = ICON_BTN + 8.0;
 const PILL_R: u8 = (PILL_H / 2.0) as u8;
 
 /// Space the floating bar takes from the bottom of the view: the page keeps the caret above it.
-pub fn bar_clearance(ctx: &Context) -> f32 {
-    if pill_hidden(ctx) { 0.0 } else { PILL_H + FLOAT_GAP }
+pub fn bar_clearance(ctx: &Context, read_mode: bool) -> f32 {
+    if read_mode || pill_hidden(ctx) { 0.0 } else { PILL_H + FLOAT_GAP }
 }
 
 /// A phone turned sideways with the keyboard up has a band too short for the floating bar: the bar
