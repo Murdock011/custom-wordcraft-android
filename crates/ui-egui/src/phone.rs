@@ -145,11 +145,29 @@ pub fn top_bar(app: &mut WordApp, ui: &mut Ui) {
                 if icon_button(ui, m, "find", "Search").clicked() {
                     let _ = app.run("ui.dialog", json!({"name": "commands"}));
                 }
-                if icon_button(ui, m, "redo", "Redo").clicked() {
-                    run(app, "edit.redo");
-                }
-                if icon_button(ui, m, "undo", "Undo").clicked() {
-                    run(app, "edit.undo");
+                if app.session.view.read_mode {
+                    // Reading: the page turns and Edit Document take the place of Undo and Redo.
+                    if icon_button(ui, m, "printLayout", "Edit Document").clicked() {
+                        run(app, "view.printLayout");
+                    }
+                    let (back, forward) = (app.canvas.scroll_offset.x > 0.5, app.canvas.scroll_offset.x + 0.5 < app.canvas.scroll_max.x);
+                    ui.add_enabled_ui(forward, |ui| {
+                        if icon_button(ui, m, "chevronRight", "Next Page").clicked() {
+                            crate::canvas::turn_read_page(app, 1.0);
+                        }
+                    });
+                    ui.add_enabled_ui(back, |ui| {
+                        if icon_button(ui, m, "chevronLeft", "Previous Page").clicked() {
+                            crate::canvas::turn_read_page(app, -1.0);
+                        }
+                    });
+                } else {
+                    if icon_button(ui, m, "redo", "Redo").clicked() {
+                        run(app, "edit.redo");
+                    }
+                    if icon_button(ui, m, "undo", "Undo").clicked() {
+                        run(app, "edit.undo");
+                    }
                 }
             });
         });
