@@ -1135,3 +1135,16 @@ Verified: `ui_shot` at 412x915 pt, scale 2.625, blank document. Before: white to
 2. Phone Print Layout ruler: with View > Show rulers on, the phone draws the horizontal ruler across the full width under the app bar, scaled to the page zoom. The vertical ruler and tab-kind corner are not shown on the phone. Web Layout and Read mode are unchanged. Changes: `canvas.rs` `show`, `rulers` (now takes an optional vertical rect).
 3. Renders (headless `ui_shot`, 412x915 pt at 2.625): before and after shots of Read mode and Print Layout in `scratchpad/u40-read-before.png`, `u40-read-after.png`, `u40-ruler-before.png`, `u40-ruler-after.png`.
 4. Tests: `cargo test -p wordcraft-ui-egui` 870 + 10 passed. `cargo xtask wasm` passed. `cargo clippy -p wordcraft-ui-egui --all-targets -- -D warnings` fails on lints that already exist on the base commit in other crates and in phone.rs/dialogs.rs code this change does not touch.
+
+## Update 42: keyboard stays down after Recents (real-phone report)
+Report: on a Samsung phone with Samsung Keyboard, returning from Recents still showed the keyboard, e.g. Home with the side drawer open.
+Cause (likely): the keyboard poll only hides the keyboard when its wanted state changes. On window focus, Android restores the soft keyboard for the focused `imeView`, and the poll never runs a hide for it.
+Fix: `AndroidManifest.xml` adds `stateAlwaysHidden` to `windowSoftInputMode`. `MainActivity.onWindowFocusChanged(true)` now hides the keyboard and clears `imeView` focus when the poll would not want it (same condition as the poll).
+Verified on the emulator (`wc35`, x86_64, Gboard; Samsung Keyboard not available here): Recents round-trips with the keyboard as shown.
+- a. Drawer open on Home, Recents, back: keyboard DOWN (`u42-c1-drawer-return.png`).
+- b. Home, Recents, back: DOWN (`u42-b3-home-return.png`).
+- c. Options, Recents, back: DOWN (`u42-c3-options-return.png`).
+- d. Typing in a document, Recents, back: keyboard back, as wanted (`u42-d3-doc-return.png`).
+- e. After returning, tapping the document brings the keyboard up (`u42-e3-tap-after-return.png`).
+Not verified: the pre-fix build did not show the bug on Gboard, so these passes do not prove the fix changed the outcome. Samsung Keyboard is untested.
+`cargo test -p wordcraft-android`: 28 passed.

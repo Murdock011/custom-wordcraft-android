@@ -520,7 +520,15 @@ class MainActivity : GameActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) readClip()
+        if (!hasFocus) return
+        readClip()
+        // Returning from Recents: Android restores the soft keyboard for the focused imeView before the poll runs.
+        // Hide it here when the poll would not want it, and drop the focus that restores it.
+        if (!(nativeWantsKeyboard() && (!resumeHold || nativeCanvasEditing()))) {
+            keyboardShown = false
+            imeView.clearFocus()
+            hideKeyboard()
+        }
     }
 
     override fun onResume() {
