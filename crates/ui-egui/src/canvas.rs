@@ -159,7 +159,7 @@ pub struct CanvasState {
     pub(crate) auto_scroll: crate::autoscroll::AutoScroll,
     /// The scroll offset and its maximum at the end of last frame.
     pub(crate) scroll_offset: egui::Vec2,
-    scroll_max: egui::Vec2,
+    pub(crate) scroll_max: egui::Vec2,
     /// Explicit page turn to apply on the next frame (reading navigation buttons/keys).
     scroll_request: Option<egui::Vec2>,
     /// The viewport (the content's visible rect on screen) at the end of last frame; the
@@ -1037,13 +1037,16 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     // View › Switch Modes: dark paper, inverted document colours.
     let dark_page = app.session.view.dark_mode;
     let dark_paper = wordcraft_render::DARK_PAPER;
-    // The phone layout (`phone.rs`) leaves the rulers out: a 390 pt screen has no room for them.
+    // The phone (`phone.rs`) has no room for the vertical ruler: it gets the horizontal one only,
+    // across the full width under the app bar, in Print Layout.
     let show_ruler = app.session.view.ruler
         && app.session.view.mode == wordcraft_layout::ViewMode::Print
         && !app.session.view.read_mode
-        && crate::chrome::Screen::of(&app.session.view) == crate::chrome::Screen::Normal
-        && !crate::phone::active(ui.ctx());
-    let (hruler, vruler, area) = if show_ruler {
+        && crate::chrome::Screen::of(&app.session.view) == crate::chrome::Screen::Normal;
+    let (hruler, vruler, area) = if show_ruler && app.phone {
+        let h = Rect::from_min_max(pos2(full.min.x, full.min.y), pos2(full.max.x, full.min.y + RULER));
+        (Some(h), None, Rect::from_min_max(pos2(full.min.x, full.min.y + RULER), full.max))
+    } else if show_ruler {
         let h = Rect::from_min_max(pos2(full.min.x + RULER, full.min.y), pos2(full.max.x, full.min.y + RULER));
         let v = Rect::from_min_max(pos2(full.min.x, full.min.y + RULER), pos2(full.min.x + RULER, full.max.y));
         (Some(h), Some(v), Rect::from_min_max(pos2(full.min.x + RULER, full.min.y + RULER), full.max))
@@ -2017,8 +2020,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     }
     app.canvas.auto_scroll.paint(ui, area);
     let _ = origin;
-    if let (Some(h), Some(v)) = (hruler, vruler) {
-        rulers(app, ui, h, v, &rects, &layout, geo.scale);
+    if let Some(h) = hruler {
+        rulers(app, ui, h, vruler, &rects, &layout, geo.scale);
     }
     crate::mini_toolbar::track_dismissal(app, ui.ctx(), area);
     if let Some(sel) = app.canvas.mini_anchor
@@ -2026,7 +2029,8 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     {
         crate::mini_toolbar::show(app, ui.ctx(), sel, out.inner_rect);
     }
-    if app.session.view.read_mode {
+    // On the phone the page turns and Edit Document sit in the top bar (`phone::top_bar`).
+    if app.session.view.read_mode && !app.phone {
         // Fixed navigation chrome, independent of the horizontally moving columns.
         let step = app.session.view.read_width * app.canvas.scale + GAP;
         let current = if step > 0.0 { (app.canvas.scroll_offset.x / step).round() as usize + 1 } else { 1 };
@@ -3027,14 +3031,17 @@ fn mouse(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layo
 /// Horizontal and vertical rulers for the caret's page and paragraph. Each spans that page's
 /// rect on screen at the page's own scale and is clipped to its strip, whatever the layout
 /// (one column, One Page, Multiple Pages), and follows the caret to another page (#1878).
-fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layout: &DocLayout, scale: f32) {
+fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Option<Rect>, rects: &[Rect], layout: &DocLayout, scale: f32) {
     let t = Tokens::get(ui.ctx());
     let p = ui.painter();
-    let corner = Rect::from_min_max(pos2(v.min.x, h.min.y), pos2(v.max.x, h.max.y));
-    p.rect_filled(corner, 0.0, t.canvas);
     p.rect_filled(h, 0.0, t.canvas);
-    p.rect_filled(v, 0.0, t.canvas);
-    crate::ruler_tabs::selector(app, ui, corner);
+    // The corner (the tab selector) sits where the vertical ruler starts; the phone has none.
+    if let Some(v) = v {
+        let corner = Rect::from_min_max(pos2(v.min.x, h.min.y), pos2(v.max.x, h.max.y));
+        p.rect_filled(corner, 0.0, t.canvas);
+        p.rect_filled(v, 0.0, t.canvas);
+        crate::ruler_tabs::selector(app, ui, corner);
+    }
     let pi = app.session.page_hint.min(layout.pages.len().saturating_sub(1));
     let (Some(page), Some(pr)) = (layout.pages.get(pi), rects.get(pi)) else { return };
     let scale = page_screen_scale(*pr, page, scale);
@@ -3160,7 +3167,8 @@ fn rulers(app: &mut WordApp, ui: &mut Ui, h: Rect, v: Rect, rects: &[Rect], layo
             let _ = app.run("para.indents", json!({"right": (pt / 4.5).round() * 4.5}));
         }
     }
-    // Vertical.
+    // Vertical (none on the phone).
+    let Some(v) = v else { return };
     let vp = ui.painter_at(v);
     let y0 = pr.min.y;
     let vbar = Rect::from_min_max(pos2(v.min.x + 4.0, y0), pos2(v.max.x - 3.0, pr.max.y));

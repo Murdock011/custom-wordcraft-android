@@ -1070,3 +1070,10 @@ Screenshots (`~/.cache/wc-spike/`):
 - `u38-3-after-tap.png`: paragraph after the tap.
 
 Result: no underline on "reason", and the line after "Rent is the" wraps normally. The Update 33 odd break came with a Gboard composing region, which Update 35's span change removed; the stray underline is gone too. Not checked: typing inside the paragraph to trigger a composing region.
+
+## Update 40: Read mode buttons in the top bar; ruler in Print Layout
+
+1. Phone Read mode: the page turns (previous and next) and Edit Document sit in the top bar in place of Undo and Redo, all 48 pt. The footer bar under the pull-down menu is hidden on the phone (`canvas.rs`, `!app.phone`); the desktop footer is unchanged. Changes: `phone.rs` `top_bar`, `canvas.rs`.
+2. Phone Print Layout ruler: with View > Show rulers on, the phone draws the horizontal ruler across the full width under the app bar, scaled to the page zoom. The vertical ruler and tab-kind corner are not shown on the phone. Web Layout and Read mode are unchanged. Changes: `canvas.rs` `show`, `rulers` (now takes an optional vertical rect).
+3. Renders (headless `ui_shot`, 412x915 pt at 2.625): before and after shots of Read mode and Print Layout in `scratchpad/u40-read-before.png`, `u40-read-after.png`, `u40-ruler-before.png`, `u40-ruler-after.png`.
+4. Tests: `cargo test -p wordcraft-ui-egui` 870 + 10 passed. `cargo xtask wasm` passed. `cargo clippy -p wordcraft-ui-egui --all-targets -- -D warnings` fails on lints that already exist on the base commit in other crates and in phone.rs/dialogs.rs code this change does not touch.
