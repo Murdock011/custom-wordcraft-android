@@ -37,6 +37,11 @@ static CONTEXT: Mutex<String> = Mutex::new(String::new());
 pub static WANTS_KEYBOARD: AtomicBool = AtomicBool::new(false);
 /// Whether Android Back has a sheet, menu or Backstage to close. Written each frame.
 pub static CAN_GO_BACK: AtomicBool = AtomicBool::new(false);
+/// Whether the document canvas has keyboard focus for editing, with no dialog, sheet or File page
+/// open. Written each frame; a resume shows the keyboard only when this is set.
+pub static CANVAS_EDITING: AtomicBool = AtomicBool::new(false);
+/// File › Close ended the app: Kotlin finishes the activity.
+pub static QUIT: AtomicBool = AtomicBool::new(false);
 /// Whether the system is in night mode (set by Kotlin; winit reports no theme on Android).
 pub static NIGHT: AtomicBool = AtomicBool::new(false);
 

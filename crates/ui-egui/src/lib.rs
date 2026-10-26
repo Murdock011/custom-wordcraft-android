@@ -99,6 +99,8 @@ pub use file_dialogs::{FileDialogAnswer, FileDialogRequest, open_filters};
 /// Platform services injected by the host (file dialogs, file I/O).
 #[derive(Default)]
 pub struct Services {
+    /// File › Close ends the app (Android: the activity finishes), as the window's close button does.
+    pub close_quits: bool,
     /// Desktop: discover configured printers on a worker.
     pub printers: Option<printing::Discover>,
     /// Desktop: submit the PDF with the chosen settings on a worker.
@@ -2463,6 +2465,16 @@ impl WordApp {
     /// a phone sheet page or menu, Backstage, a context menu, or a selection (Back collapses it,
     /// so the app stays open). The web shell tells the Android
     /// shell (`window.wcCanGoBack`).
+    /// Whether the document canvas has keyboard focus for editing: no dialog, sheet, colour
+    /// picker or Backstage is open, and the canvas has focus this frame.
+    pub fn canvas_editing(&self, ctx: &egui::Context) -> bool {
+        self.dialog.is_none()
+            && self.colors.is_none()
+            && !self.ui.backstage
+            && !phone::can_go_back(ctx)
+            && self.canvas.widget_id.is_some_and(|(id, _)| ctx.memory(|m| m.has_focus(id)))
+    }
+
     pub fn can_go_back(&self, ctx: &egui::Context) -> bool {
         self.dialog.is_some()
             || self.colors.is_some()

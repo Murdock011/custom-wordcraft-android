@@ -1070,3 +1070,35 @@ Screenshots (`~/.cache/wc-spike/`):
 - `u38-3-after-tap.png`: paragraph after the tap.
 
 Result: no underline on "reason", and the line after "Rent is the" wraps normally. The Update 33 odd break came with a Gboard composing region, which Update 35's span change removed; the stray underline is gone too. Not checked: typing inside the paragraph to trigger a composing region.
+
+## Update 41: settings text fields, keyboard on resume, Close (2026-10-26)
+Status: items 2 and 3 fixed and checked on the emulator. Item 1 (flicker in settings fields) reproduced and the cause is confirmed, but not fixed. Nothing pushed.
+
+### 1. Flicker in Options › General › Personalize (NOT FIXED)
+Repro (emulator-5554, x86_64): tap "User name", logcat cleared. The log shows `setSoftKeyboardActive false` (hide, `onRequestHide`), then `setSoftKeyboardActive true` (`mainWorkCallback`, `onRequestShow`). Each tap into a field gives one hide and show pair, and the keyboard animates out and back.
+Cause: egui's TextEdit calls `memory.request_focus` on every click (`egui 0.36.2 widgets/text_edit/builder.rs:816`). `request_focus` sets `requested_interrupt_ime` (`memory/mod.rs:918-920`). egui copies it to `PlatformOutput.ime.should_interrupt_composition` (`context.rs:2688`), and egui-winit then calls `set_ime_allowed(false)` and `set_ime_allowed(true)` (`egui-winit lib.rs:1157-1162`). On Android that is GameActivity's `setSoftKeyboardActive` false then true. The same mechanism is Update 31's canvas flicker.
+Why it is not a Kotlin fix: egui sets the flag inside the pass, after our `ui()` returns, and `memory` has no public reset. Gating it from our code would need a patched egui or egui-winit, or a change to how the settings fields take focus. Ceiling: one hide and show per tap into a settings field. Typing did not reproduce a flicker in this run.
+Next step: vendor or patch egui-winit so Android skips the toggle when no composition is open (the same idea as canvas.rs `press_on_focused`), then retest taps in the field.
+
+### 2. Keyboard after resume (FIXED)
+Cause: the keyboard poll shows the keyboard whenever egui wants text input (`output.ime`), and Android re-shows the focused input after a resume. On return from Recents with Options open, the General field is still focused, so the keyboard came back over Options.
+Fix: `MainActivity.kt` sets `resumeHold` in `onResume`. While it is set, the poll counts the keyboard as wanted only if the document canvas is being edited (`nativeCanvasEditing`). A touch down clears the hold (`dispatchTouchEvent`), so tapping a field or the canvas brings the keyboard back. Rust publishes `ime::CANVAS_EDITING` each frame from `WordApp::canvas_editing` (`ui-egui/src/lib.rs`: no dialog, colour picker, Backstage or phone sheet open, and the canvas has focus).
+Device: Options › General, "User name" focused, Home then relaunch: no keyboard, caret still in the field (`u41-17-resume-settings.png`). Canvas edited, Home then relaunch: keyboard back (`u41-19-canvas-resume.png`).
+
+### 3. Side menu order and Close (FIXED)
+- Order: the phone drawer lists Options above Close (`backstage.rs` `drawer_pages`). The desktop sidebar keeps the PAGES order.
+- Close on Android: `Services::close_quits` (set by the Android host) makes "close" run `file.close {"quit": true}`. A clean document quits at once. A dirty one shows the existing Save Changes prompt, and Save or Don't Save then quits. Cancel stays. Rust sets `ime::QUIT` each frame; the poll calls `finish()`. Recovery copies are unchanged.
+Device: drawer shows Options above Close (`u41-11-drawer2.png`); tapping Close on the Home page returned to the launcher, and the app left the foreground (`u41-12-close.png` is the launcher).
+Note: on a second cold start the process was left alive from the finish and the window had no input channel until `am force-stop`. Not investigated further.
+
+### Tests
+- `cargo test -p wordcraft-android`: 28 passed.
+- `cargo test -p wordcraft-ui-egui`: 872 passed, 2 ignored; integration 10 passed.
+- New: `backstage::tests::drawer_lists_options_above_close`, `backstage::tests::close_on_android_quits_the_app`.
+- `cargo xtask ci` not run.
+
+Screenshots: `~/.cache/wc-spike/u41-*.png` (Recover, document, drawer before and after, the General page with the field focused, resume checks).
+
+### Open items
+- Item 1: patch egui-winit or the settings focus path (see above).
+- Process left alive after Close: check whether a fresh launch always gets a window.

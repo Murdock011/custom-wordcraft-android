@@ -24,6 +24,7 @@ import android.os.Looper
 import android.text.InputType
 import android.text.TextUtils
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
@@ -55,6 +56,8 @@ class MainActivity : GameActivity() {
     /** Set across a rotation when the keyboard was hidden before it: the insets listener hides it again. */
     private var keepImeHidden = false
     private var keyboardShown = false
+    /** Set on resume: the keyboard is not shown again until the document is edited or the screen is tapped. */
+    private var resumeHold = false
     private lateinit var imeView: ImeView
 
     // The text the input method reads: the paragraph around the caret, with Rust's composition in it.
@@ -189,7 +192,12 @@ class MainActivity : GameActivity() {
             nativeTakeRequest().takeIf { it.isNotEmpty() }?.let { files.add(it); nextFile() }
             nativeTakeClip().takeIf { it.isNotEmpty() }?.let { clipboard.setPrimaryClip(ClipData.newPlainText("WordCraft", it.substring(1))) }
             drainSpeech()
-            val want = nativeWantsKeyboard()
+            if (nativeQuitRequested()) {
+                finish()
+                return
+            }
+            // After a resume the keyboard stays down unless the document was being edited or the user taps.
+            val want = nativeWantsKeyboard() && (!resumeHold || nativeCanvasEditing())
             if (want) pullContext()
             if (want != keyboardShown) {
                 keyboardShown = want
@@ -512,6 +520,17 @@ class MainActivity : GameActivity() {
         if (hasFocus) readClip()
     }
 
+    override fun onResume() {
+        super.onResume()
+        resumeHold = true
+    }
+
+    // A tap is the user asking for the keyboard again (a settings field, the canvas): end the resume hold.
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) resumeHold = false
+        return super.dispatchTouchEvent(ev)
+    }
+
     // Android may kill a backgrounded process without warning: copy unsaved work now (Rust, recovery).
     override fun onPause() {
         super.onPause()
@@ -581,6 +600,12 @@ class MainActivity : GameActivity() {
 
     /** Whether egui wants the soft keyboard. */
     private external fun nativeWantsKeyboard(): Boolean
+
+    /** Whether the document canvas is being edited (no dialog, sheet or Backstage open). */
+    private external fun nativeCanvasEditing(): Boolean
+
+    /** Whether File › Close asked to end the app. */
+    private external fun nativeQuitRequested(): Boolean
 
     /** The text around the caret for the input method: ack, caret, composing start and end, text. */
     private external fun nativeContext(): String

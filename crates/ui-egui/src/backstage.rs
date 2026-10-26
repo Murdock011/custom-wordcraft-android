@@ -53,11 +53,22 @@ fn activate(app: &mut WordApp, id: &str) {
         }
         // Not a page: `file.close` asks Save / Don't Save / Cancel first when there
         // are unsaved changes, and Cancel leaves the Backstage where it was.
+        // On Android the window is the app: Close ends it (the same prompt, then quit).
         "close" => {
-            let _ = app.run("file.close", json!({}));
+            let quit = app.services.close_quits;
+            let _ = app.run("file.close", if quit { json!({"quit": true}) } else { json!({}) });
         }
         _ => app.ui.backstage_page = id.into(),
     }
+}
+
+/// The phone drawer's pages: Options comes above Close, which ends the list.
+fn drawer_pages() -> [(&'static str, &'static str, &'static str); 11] {
+    let mut pages = PAGES;
+    if let (Some(close), Some(options)) = (pages.iter().position(|p| p.0 == "close"), pages.iter().position(|p| p.0 == "options")) {
+        pages.swap(close, options);
+    }
+    pages
 }
 
 /// Whether the phone's navigation drawer is open. Kept in egui's memory, as the phone bars keep theirs.
@@ -112,7 +123,7 @@ fn phone_show(app: &mut WordApp, ui: &mut Ui) {
                 egui::Frame::NONE.fill(m.surface_low).shadow(shadow).inner_margin(egui::Margin::symmetric(0, 16)).show(ui, |ui| {
                     ui.set_width(296.0);
                     ui.set_min_height(height - 32.0);
-                    for (id, label, icon) in PAGES {
+                    for (id, label, icon) in drawer_pages() {
                         // No document open (#1129): the pages that need one are greyed out.
                         let on = has_document || works_without_document(id);
                         let active = app.ui.backstage_page == id;
@@ -2122,6 +2133,33 @@ mod tests {
         h.run_steps(1);
         assert!(h.state().dialog.is_none(), "no prompt");
         assert!(!h.state().has_document() && !h.state().quit_requested);
+    }
+
+    /// The phone drawer lists Options above Close.
+    #[test]
+    fn drawer_lists_options_above_close() {
+        let pages = super::drawer_pages();
+        let at = |id: &str| pages.iter().position(|p| p.0 == id);
+        assert!(at("options") < at("close"), "Options comes above Close");
+        assert_eq!(pages.len(), super::PAGES.len());
+    }
+
+    /// On Android Close ends the app: a clean document quits at once, a dirty one asks first.
+    #[test]
+    fn close_on_android_quits_the_app() {
+        let services = Services { close_quits: true, ..Default::default() };
+        let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), services);
+        a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
+        super::activate(&mut a, "close");
+        assert!(a.quit_requested, "a clean document quits the app");
+
+        let services = Services { close_quits: true, ..Default::default() };
+        let mut b = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), services);
+        b.run("text.insert", json!({"text": "Draft"})).unwrap();
+        super::activate(&mut b, "close");
+        assert!(!b.quit_requested && matches!(b.dialog, Some(crate::dialogs::Dialog::SaveChanges { .. })), "unsaved changes ask first");
+        b.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
+        assert!(b.quit_requested, "Don't Save then quits the app");
     }
 
     #[test]

@@ -54,6 +54,7 @@ impl Shell {
         let saves = AsyncSaves::default();
         let inbox = Inbox::default();
         let services = Services {
+            close_quits: true,
             open_async: Some(Box::new(|purpose: &str| files::request(Request::Open { purpose: purpose.into() }))),
             // Recent entries of picked documents are content locations: read them through the picker's grant.
             open_location: Some(Box::new(files::read_location)),
@@ -313,6 +314,8 @@ impl eframe::App for Shell {
         let idle = !self.applying;
         let sel_before = self.app.session.sel.clone();
         self.app.ui(ui);
+        ime::CANVAS_EDITING.store(self.app.canvas_editing(ui.ctx()), std::sync::atomic::Ordering::Relaxed);
+        ime::QUIT.store(self.app.quit_requested, std::sync::atomic::Ordering::Relaxed);
         // The events handed over this frame are applied now, so the context shows them.
         self.applying = false;
         if idle && !self.pending.is_empty() && self.app.session.sel != sel_before {

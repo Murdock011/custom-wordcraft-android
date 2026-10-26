@@ -71,6 +71,20 @@ pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nati
     ime::WANTS_KEYBOARD.load(Ordering::Relaxed) as jboolean
 }
 
+/// Whether the document canvas is being edited (see `ime::CANVAS_EDITING`).
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeCanvasEditing<'local>(_env: EnvUnowned<'local>, _this: JObject<'local>) -> jboolean {
+    ime::CANVAS_EDITING.load(Ordering::Relaxed) as jboolean
+}
+
+/// Whether Close asked to end the app (see `ime::QUIT`).
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeQuitRequested<'local>(_env: EnvUnowned<'local>, _this: JObject<'local>) -> jboolean {
+    ime::QUIT.load(Ordering::Relaxed) as jboolean
+}
+
 /// Whether Android Back has a sheet, menu or Backstage to close.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
