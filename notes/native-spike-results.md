@@ -1157,3 +1157,12 @@ Steps (emulator-5554, Word force-stopped, WordCraft launched): the app opened on
 Screenshots (`~/.cache/wc-spike/`): `u44-0-launch.png` (Document1 on launch), `u44-0d-home.png` (Home), `u44-1-sample.png` (save prompt), `u44-2b-cancel.png` (after Cancel).
 
 Next: choose Don't Save on Document1 (or Save) to reach the sample, then run the "Rent is the" and "Thursdaqy" steps.
+
+### Update 44, continued: checks run after Don't Save
+Document1 (one unsaved "x", test data from an earlier agent) was discarded with Don't Save, as the coordinator directed. The sample then opened.
+
+1. "Rent is the" recheck: NOT reproduced. Tapped inside "obvious" (first line), typed "e" "r" with Gboard keys, then a space. Result "Rent is the Er obvious reason..." wrapped normally with no odd break (`u44-7-typed.png`, `u44-8-space.png`). Three Gboard Backspaces restored "Rent is the obvious reason" (`u44-9-backspace.png`).
+2. "Thursdaqy" recheck: NOT reproduced on the Gboard path. Tapped between "Thurs" and "day", Gboard "q", then Gboard Backspace: "Every Thursday evening" read correctly (`u44-11-q.png`, `u44-12-bksp.png`).
+3. Earlier recipe (`adb shell input text q`): produced "Thursqday" (`u44-13-adbq.png`). Back, then a tap at the same spot, then `keyevent 67` removed the "s", not the "q", leaving "Thurqday" (`u44-14-adbbksp.png`). Cause: the tap put the caret between "s" and "q", so Backspace deleted the "s" as it should. The test tap was one character off. This is not a composing bug, and no fix was made.
+
+Summary: neither bug reproduced. No code change. `cargo test` not run (no code changed).
