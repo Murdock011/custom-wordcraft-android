@@ -50,6 +50,4 @@ themselves) or had to be reworked.
   keep edits to upstream's shared files to small hooks.
 - Merge upstream often: a few weeks of changes conflict far less than a few months.
 
-As of 2026-10-25, a trial merge of the 213 upstream commits made since this fork's baseline
-conflicted in three files only: `apps/wordcraft-web/Cargo.toml`, `crates/ui-egui/src/canvas.rs`
-and `crates/ui-egui/src/lib.rs`.
+On 2026-10-28 the fork was merged with upstream v0.11.0; the conflicts were in `ATTRIBUTION.md`, `apps/wordcraft-web/Cargo.toml`, `crates/ui-egui/src/canvas.rs`, `crates/ui-egui/src/dialogs.rs` and `crates/ui-egui/src/lib.rs`.

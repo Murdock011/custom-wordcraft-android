@@ -1182,3 +1182,16 @@ Update 45: no formatting bar in Read mode; clippy clean.
 2. Read mode no longer reserves the floating-bar clearance (80 px) at the bottom: bar_clearance takes read_mode and returns 0. Change: phone.rs bar_clearance, canvas.rs caret scroll.
 3. Render (headless ui_shot, 412x915 pt at 2.625): scratchpad/u46-read.png. The title is cut with an ellipsis before the disabled chevron, then the next chevron, Edit Document and Search, with no overlap.
 4. Tests: cargo test -p wordcraft-ui-egui 873 + 10 passed. cargo clippy -p wordcraft-ui-egui --lib --tests --no-deps -- -D warnings clean. cargo fmt --all --check clean.
+
+## Update 48: merged upstream engine v0.11.0 (2026-10-28)
+1. Merge of `v0.11.0` (214 upstream commits, `--no-ff`) on branch `update-engine-0.11.0`. Five files conflicted:
+   - `ATTRIBUTION.md`: kept the fork's icon and mockup rows and upstream's `craft-i18n` row; dropped the fork's per-language `.tsv` rows, since those catalogs moved out of the repo upstream.
+   - `apps/wordcraft-web/Cargo.toml`: union of both `web-sys` feature lists (fork's `HtmlInputElement`, `InputEvent`, `CompositionEvent`, `KeyboardEvent` plus upstream's `MessageEvent`, `UrlSearchParams`).
+   - `crates/ui-egui/src/canvas.rs`: upstream's sepia paper kept; the fork's phone-only page shadow (no shadow in Web Layout) kept.
+   - `crates/ui-egui/src/dialogs.rs` (Paragraph tabs): phone uses the fork's wrapped tab row; desktop uses upstream's `widgets::dialog_tabs`.
+   - `crates/ui-egui/src/lib.rs` (save/export download): upstream's `host_save` path kept. Fork's 3-argument `Services::download` (Save As flag) kept, so upstream's new `download(...)` call and the `apps/wordcraft-web/src/host.rs` closure and two test closures were updated to the 3-argument form.
+2. Build: `cargo build -p wordcraft-ui-egui -p wordcraft-android` passes.
+3. Tests: `cargo test -q -p wordcraft-engine -p wordcraft-ui-egui -p wordcraft-android` passes, 0 failed (1006, 901, 41 and 10 passed in the test binaries; 2 and 1 ignored).
+4. `cargo xtask wasm` ok; `cargo xtask assets` ok (86 files attributed); `cargo fmt --all --check` clean.
+5. `sh packaging/android-native/build-native.sh x86_64` succeeds (assembleDebug).
+6. ENGINE-CHANGES.md unchanged: each fork engine change is still present and tested after the merge.
