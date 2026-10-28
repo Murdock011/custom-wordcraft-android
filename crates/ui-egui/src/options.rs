@@ -603,6 +603,12 @@ fn language(app: &mut WordApp, ui: &mut Ui) {
     // #414 (detect the document's language) goes here.
     ui.add_space(8.0);
     section(ui, "Proofing language");
+    // The phone keeps its note (Update 49): the document's default language, as before the 0.11.0 merge.
+    if crate::phone::active(ui.ctx()) {
+        let tag = app.session.doc.styles.default_chr.lang.clone();
+        note(ui, &crate::ribbon::language_name(tag.as_deref()));
+        return;
+    }
     let lang = crate::ribbon::caret_language(app);
     let text = if crate::ribbon::caret_no_proof(app) {
         tl!("The text at the insertion point is marked Do not check spelling or grammar.").to_string()

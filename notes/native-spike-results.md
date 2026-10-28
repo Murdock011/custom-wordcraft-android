@@ -1204,3 +1204,21 @@ Update 45: no formatting bar in Read mode; clippy clean.
 - Emulator, after: the same three taps gave 0 show and 0 hide requests. The field read "WordCraft UserQwe", each letter once.
 - Document typing recheck was not completed: the blank document canvas did not render in the test session, so `abc` could not be seen. Still to check.
 - Checks: `cargo test -q -p wordcraft-android` (29 passed), `cargo test -q -p wordcraft-ui-egui` ok, `cargo xtask wasm` ok, `cargo xtask assets` ok, `cargo fmt --all --check` clean.
+
+## Update 49: phone UI restored after engine 0.11.0 merge (2026-10-28)
+Rule: an engine update must not change the phone UI. Compared dd035eaa (before the merge) with HEAD (f203d528) on headless renders (`ui_shot`, 412x915 pt at 2.625) and on the x86_64 emulator.
+
+Differences found:
+1. Options › Language, "Proofing language" note (phone only). Upstream's `options.rs` `language()` replaced the note with a status sentence ("Spelling and grammar are checked in English (United States)."), and the old note showed the document's default language name. Visible in headless and on the emulator.
+
+Everything else matched pixel for pixel (headless): Start screen, blank document, sample document, Home and Insert tab sheets, Font dialog, Options list, Options › General, Display, Proofing, Accessibility, Advanced, Read mode. Emulator matched below the status bar: Home, Options list, General, Language, Proofing. Two pixel differences were timing only: the caret blink on the blank document, and the scrollbar fade on Options › Proofing.
+
+Fix:
+1. `crates/ui-egui/src/options.rs` `language()`: on the phone, show the dd035eaa note (`language_name` of the document's default language) and return. The desktop keeps upstream's new text.
+
+Checks:
+- Headless Options › Language after the fix: identical to dd035eaa. Proofing: identical except the scrollbar fade.
+- Emulator after the fix (x86_64 from the main checkout): Options list, General, Language and Proofing identical to dd035eaa (status bar excluded: clock).
+- `cargo test -q -p wordcraft-ui-egui -p wordcraft-android`: 29, 901 and 10 passed, 0 failed.
+- `cargo xtask wasm` ok; `cargo xtask assets` ok (86 files); `cargo fmt --all --check` clean.
+- Not covered on the emulator after the fix: drawer, tab sheets, Read mode, dialogs (headless only).
