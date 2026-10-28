@@ -1,5 +1,7 @@
 # Save fix (Android, Save / Save As)
 
+> Note: the WebView build in packaging/android/ was removed after 0.2.0; paths below are historical.
+
 ## Flows found (before)
 - Web build (`apps/wordcraft-web/src/web.rs`): `download()` tried `showSaveFilePicker` first, then fell back to a blob anchor click. The Rust side marked the save done right after the click, so nothing reported the real write result.
 - Android shell (`MainActivity.kt`): a JS shim turned blob clicks into `AndroidSave.save(name, base64, mime)`, which wrote through MediaStore and asked Replace / Keep both / Cancel for an existing name. Failures were logged only as toasts, and the page never heard about them.

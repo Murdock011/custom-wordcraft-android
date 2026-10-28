@@ -57,7 +57,6 @@ known gaps are logged in [notes/native-spike-results.md](notes/native-spike-resu
   (`icon-source/`).
 - `crates/ui-egui/src/phone.rs` and changes across `crates/ui-egui`: the phone layout. They only
   apply in the phone layout.
-- `packaging/android/`: an earlier WebView-based Android wrapper.
 - `notes/`: the plan and step-by-step results of the Android work
   (`notes/native-spike-plan.md`, `notes/native-spike-results.md`) and design mockups.
 

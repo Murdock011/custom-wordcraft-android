@@ -1,5 +1,7 @@
 # WordCraft Android: native migration plan and spike (2026-10-24)
 
+> Note: the WebView build in packaging/android/ was removed after 0.2.0; paths below are historical.
+
 Status: plan only. No source, build or emulator changes were made to write this. Decision (from the coordinator): option A, native egui. B and C are fallbacks only.
 
 ## 0. Corrections to the current picture
