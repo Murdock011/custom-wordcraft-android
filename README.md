@@ -4,7 +4,7 @@
 > **This project is made entirely by AI.** All of the code, notes and documentation in this
 > repository's Android work were written by AI coding agents (Anthropic's Claude models), directed
 > by a person who did not write or review the code line by line. It has not had human code
-> review, security review or real-world testing beyond an Android emulator. Expect bugs. Do not
+> review or security review, and only light testing on an emulator and one Samsung phone. Expect bugs. Do not
 > trust it with documents you can't afford to lose.
 
 > [!IMPORTANT]
@@ -25,19 +25,20 @@ recovery after the app is killed.
 
 The few changes it makes below the interface are listed, with the reason for each, in
 [docs/ENGINE-CHANGES.md](docs/ENGINE-CHANGES.md). The fork keeps the original project's history,
-so newer WordCraft versions can be merged in; see [docs/UPDATING.md](docs/UPDATING.md).
+so newer WordCraft versions can be merged in; see [docs/UPDATING.md](docs/UPDATING.md). It is
+currently based on WordCraft engine **0.11.0**.
 
 ## Download
 
 Builds are on the [Releases page](https://github.com/Murdock011/custom-wordcraft-android/releases).
-The latest is **0.1.5**: `custom-wordcraft-android-arm64.apk`, for 64-bit ARM phones
+The latest is **0.2.0** (WordCraft engine 0.11.0): `custom-wordcraft-android-arm64.apk`, for 64-bit ARM phones
 (arm64-v8a) only. It is signed with a debug key, so Android asks you to allow installs from your
 browser or file manager. It installs as `ai.storyteller.wordcraft.native`, next to any other
 WordCraft build.
 
 ## What works
 
-- Typing with Gboard (Backspace, Enter, the word being typed stays in the document), long-press
+- Typing with Gboard and Samsung Keyboard (Backspace, Enter, the word being typed stays in the document), long-press
   and double-tap selection with handles, an icon menu for Cut, Copy and Paste.
 - Opening, saving and saving in place through the system file picker, Recent files, Open with and
   Share for .docx, .doc, .rtf, .odt, .txt and .md.
@@ -46,7 +47,7 @@ WordCraft build.
   buttons, Options as a list of pages with toggle switches.
 - Read Aloud with Android's text-to-speech, dark mode, rotation.
 
-Status: tested on an Android emulator only, never on a physical phone. Work in progress and
+Status: tested on an Android emulator and briefly by hand on one Samsung phone. Work in progress and
 known gaps are logged in [notes/native-spike-results.md](notes/native-spike-results.md).
 
 ## What this fork adds
