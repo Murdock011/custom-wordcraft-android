@@ -214,6 +214,19 @@ pub fn replace_ops(span: Option<&Span>, t: &str) -> Vec<Op> {
     ops
 }
 
+/// The edits for a settings text field (no document span): erase the `typed` chars the composition
+/// has put in the field, then insert `t`. The field's own text is the only target.
+pub fn field_ops(typed: usize, t: &str) -> Vec<Op> {
+    let mut ops = Vec::new();
+    if typed > 0 {
+        ops.push(Op::Erase { before: typed, after: 0 });
+    }
+    if !t.is_empty() {
+        ops.push(Op::Insert(t.to_string()));
+    }
+    ops
+}
+
 /// What the input method reads: the paragraph, the caret and the composing span, in UTF-16 units.
 /// `composing` is `None` without a span.
 #[derive(Debug, PartialEq, Eq)]
@@ -243,6 +256,16 @@ pub fn encode(ack: u64, c: &Context) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_field_composition_is_replaced_not_appended() {
+        // "h" then "he" (the composition grows), then the commit "hello": each step erases what the field holds.
+        assert_eq!(field_ops(0, "h"), vec![Op::Insert("h".into())]);
+        assert_eq!(field_ops(1, "he"), vec![Op::Erase { before: 1, after: 0 }, Op::Insert("he".into())]);
+        assert_eq!(field_ops(2, "hello"), vec![Op::Erase { before: 2, after: 0 }, Op::Insert("hello".into())]);
+        assert_eq!(field_ops(5, ""), vec![Op::Erase { before: 5, after: 0 }], "an empty composition erases what it had");
+        assert!(field_ops(0, "").is_empty());
+    }
 
     #[test]
     fn a_flush_request_is_taken_once() {

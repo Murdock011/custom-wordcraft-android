@@ -51,3 +51,5 @@ themselves) or had to be reworked.
 - Merge upstream often: a few weeks of changes conflict far less than a few months.
 
 On 2026-10-28 the fork was merged with upstream v0.11.0; the conflicts were in `ATTRIBUTION.md`, `apps/wordcraft-web/Cargo.toml`, `crates/ui-egui/src/canvas.rs`, `crates/ui-egui/src/dialogs.rs` and `crates/ui-egui/src/lib.rs`.
+
+The vendored egui and egui-winit in `vendor/` (IME patches, see their `LICENSE-NOTE.md`) must be re-vendored from the new versions, or removed together with their `[patch.crates-io]` entries, whenever upstream bumps egui.

@@ -35,6 +35,8 @@ pub struct Shell {
     pending: Vec<Event>,
     /// The text the input method is composing. It stays in the document; this only marks it.
     held: Option<Held>,
+    /// Chars the input method's composition has put in a settings text field (not the document).
+    field_typed: usize,
     /// Set while events queued for egui have not been applied yet. No message is read then, so
     /// each one sees the document as the last one left it (`drain_ime`).
     applying: bool,
@@ -112,7 +114,7 @@ impl Shell {
         app.start_screen();
         let recent = files::load_recent();
         app.ui.recent = recent.clone();
-        Self { app, pending: Vec::new(), held: None, applying: false, drained: 0, saves, inbox, saved_recent: recent }
+        Self { app, pending: Vec::new(), held: None, field_typed: 0, applying: false, drained: 0, saves, inbox, saved_recent: recent }
     }
 
     /// A picked document now lives at `loc`: the title, Recent and plain Save follow it.
@@ -229,7 +231,50 @@ impl Shell {
         }
     }
 
+    /// A settings text field has the keyboard (no canvas editing): the text goes straight into the
+    /// field. The document's composition and context do not apply to it.
+    fn handle_field(&mut self, m: Msg) {
+        match m {
+            Msg::Compose(t) => self.field_text(&t, true),
+            Msg::Commit(t) if t == "\n" => {
+                self.field_typed = 0;
+                self.press(Key::Enter);
+            }
+            Msg::Commit(t) => self.field_text(&t, false),
+            Msg::Finish => self.field_typed = 0,
+            Msg::Delete { before, after } => {
+                self.push_op(&Op::Erase { before, after });
+                self.field_typed = self.field_typed.saturating_sub(before);
+            }
+            Msg::Region { .. } => {}
+            Msg::Key(code) => {
+                self.field_typed = 0;
+                let key = match code {
+                    KEYCODE_ENTER => Key::Enter,
+                    KEYCODE_DEL => Key::Backspace,
+                    KEYCODE_FORWARD_DEL => Key::Delete,
+                    KEYCODE_ESCAPE => Key::Escape,
+                    _ => return,
+                };
+                self.press(key);
+            }
+        }
+    }
+
+    /// Puts `t` in the field in place of its composition (`compose`), or as final text.
+    fn field_text(&mut self, t: &str, compose: bool) {
+        for op in ime::field_ops(self.field_typed, t) {
+            self.push_op(&op);
+        }
+        self.field_typed = if compose { t.chars().count() } else { 0 };
+    }
+
     fn handle_ime(&mut self, m: Msg) {
+        if !ime::CANVAS_EDITING.load(Ordering::Relaxed) {
+            self.held = None;
+            return self.handle_field(m);
+        }
+        self.field_typed = 0;
         self.sync_held();
         match m {
             Msg::Compose(t) => self.replace_held(&t, true),
@@ -271,6 +316,10 @@ impl Shell {
 
     /// The text around the caret for the input method: the paragraph and the composing span.
     fn context_line(&self) -> String {
+        // A settings field has no document context: the input method sees an empty line there.
+        if !ime::CANVAS_EDITING.load(Ordering::Relaxed) {
+            return ime::encode(self.drained, &ime::Context { text: String::new(), caret: 0, composing: None });
+        }
         let context = self.focus_para().and_then(|(f, text)| ime::context(&text, f.off, self.held.as_ref().map(|h| &h.span)));
         let context = context.unwrap_or(ime::Context { text: String::new(), caret: 0, composing: None });
         ime::encode(self.drained, &context)

@@ -1195,3 +1195,12 @@ Update 45: no formatting bar in Read mode; clippy clean.
 4. `cargo xtask wasm` ok; `cargo xtask assets` ok (86 files attributed); `cargo fmt --all --check` clean.
 5. `sh packaging/android-native/build-native.sh x86_64` succeeds (assembleDebug).
 6. ENGINE-CHANGES.md unchanged: each fork engine change is still present and tested after the merge.
+
+## Update 47: settings text fields keep the keyboard steady (2026-10-28)
+- Symptom: typing in Options › General › User name made the keyboard hide and show on every key, and letters were lost or garbled.
+- Cause: egui sets the IME output only while a focused TextEdit is drawn inside its visible rect (`vendor/egui` `text_edit/builder.rs`). With the keyboard up, the field was scrolled under it, so the output vanished for a frame. `MainActivity` hid the keyboard on that frame (`keyboardPoll`), the field was uncovered, the output came back, and it was shown again.
+- Fix: (1) `vendor/egui`: a focused field that is off screen keeps its IME output and is scrolled into view. (2) `vendor/egui-winit`: no `set_ime_allowed` on Android (from earlier). (3) `apps/wordcraft-android/src/app.rs`: when the canvas is not editing, the keyboard's text goes straight into the field (`handle_field`, `field_text`), with its composition replaced through `ime::field_ops` (new host test `a_field_composition_is_replaced_not_appended`). The input method sees an empty context there.
+- Emulator, before: three key taps on the keyboard gave 16 show and 15 hide requests (logcat `onRequestShow`/`onRequestHide`).
+- Emulator, after: the same three taps gave 0 show and 0 hide requests. The field read "WordCraft UserQwe", each letter once.
+- Document typing recheck was not completed: the blank document canvas did not render in the test session, so `abc` could not be seen. Still to check.
+- Checks: `cargo test -q -p wordcraft-android` (29 passed), `cargo test -q -p wordcraft-ui-egui` ok, `cargo xtask wasm` ok, `cargo xtask assets` ok, `cargo fmt --all --check` clean.
