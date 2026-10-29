@@ -12,6 +12,10 @@
 > team or by storytold.** It is not the official WordCraft, and it is not an ArtCraft project.
 > Please don't report problems with this fork to the original project.
 
+## Screenshots
+
+<p><img src="docs/screenshots/home.png" width="180" alt="Home screen"> <img src="docs/screenshots/document.png" width="180" alt="A sample document open in the editor"> <img src="docs/screenshots/home-tab.png" width="180" alt="Home tab of the ribbon with formatting controls"> <img src="docs/screenshots/font-dialog.png" width="180" alt="Font dialog"> <img src="docs/screenshots/options.png" width="180" alt="Options list"> <img src="docs/screenshots/read-mode.png" width="180" alt="Read mode"></p>
+
 ## What this is
 
 **In short: a UI redesign for Android on top of the WordCraft engine.**
@@ -26,7 +30,7 @@ recovery after the app is killed.
 The few changes it makes below the interface are listed, with the reason for each, in
 [docs/ENGINE-CHANGES.md](docs/ENGINE-CHANGES.md). The fork keeps the original project's history,
 so newer WordCraft versions can be merged in; see [docs/UPDATING.md](docs/UPDATING.md). It is
-currently based on WordCraft engine **0.11.0**.
+currently based on WordCraft engine **0.12.0**.
 
 ## Download
 

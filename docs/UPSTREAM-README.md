@@ -1,5 +1,3 @@
-> **Note:** this is the README of the original [WordCraft](https://github.com/storytold/wordcraft) project by the ArtCraft team, kept for reference. It describes their project, not this unofficial Android fork. See the [README](../README.md) at the top of this repository.
-
 <p align="center">
   <a href="https://getartcraft.com/">
     <picture>
@@ -229,7 +227,11 @@ closer pagination fidelity, a stability sweep and native printing. Details and e
 | arm64 (Snapdragon and other ARM PCs) | `wordcraft-<ver>-windows-arm64.msi` | `wordcraft-<ver>-windows-arm64-portable.zip` |
 | x86 (32-bit) | `wordcraft-<ver>-windows-x86.msi` | `wordcraft-<ver>-windows-x86-portable.zip` |
 
-Installers and executables are code-signed.
+The installer is one dual-scope package. By default it installs for your account only,
+into `%LOCALAPPDATA%\Programs\ArtCraft\WordCraft`, and needs no administrator rights; choosing
+"Everyone on this computer" on the first page installs into `C:\Program Files\ArtCraft\WordCraft` (`Program Files (x86)` for the 32-bit build)
+and asks for an administrator. Install only one copy: a copy for another scope is refused, so
+uninstall first to change who WordCraft is installed for. Installers and executables are code-signed.
 
 **If the app doesn't open on Windows:** the desktop app initializes only DirectX 12 by default.
 Letting wgpu also create an OpenGL instance can crash some graphics drivers (AMD's

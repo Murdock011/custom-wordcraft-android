@@ -26,14 +26,14 @@ listed one by one; they only apply in the phone layout, except for those listed 
 |---|---|---|---|
 | Recovery | `crates/engine/src/recovery.rs` | New `Session::flush_recovery()` asks for a recovery copy now instead of at the next 10-second interval. | Android can kill a backgrounded app without warning; the Android host calls this when the app goes to the background, so the last edits are saved. Nothing calls it on desktop. |
 | Recovery | `crates/engine/src/recovery/desktop.rs` | When the platform has no file locks at all (`std` reports `Unsupported`, as on Android), the recovery copy is opened without a lock instead of failing. Any other lock failure is still an error. New `Recovery::flush()`. | On Android every recovery write failed, so no copy was ever kept. Android runs one process, so the missing lock guards against nothing there. |
-| Pictures | `crates/engine/src/cmd/insert.rs` (`place_picture`) | A new picture is fitted to the reflowed column (window width minus 36 pt) in Web Layout and Read Mode, instead of the printed page's text width. Print and Draft views are unchanged. | On a phone the picture came in about 1.7 times wider than the column. |
-| Headers and footers | `crates/engine/src/cmd/insert.rs` (`hf_part`) | A new header or footer is also given to every section that has none of its own. | As in Word, a page number inserted after a section break should show in every section, not only the one with the caret. |
+| Pictures | `crates/engine/src/cmd/insert/objects.rs` (`place_picture`) | A new picture is fitted to the reflowed column (window width minus 36 pt) in Web Layout and Read Mode, instead of the printed page's text width. Print and Draft views are unchanged. | On a phone the picture came in about 1.7 times wider than the column. |
+| Headers and footers | `crates/engine/src/cmd/insert/header_footer.rs` (`hf_part`) | A new header or footer is also given to every section that has none of its own. | As in Word, a page number inserted after a section break should show in every section, not only the one with the caret. |
 | View | `crates/engine/src/cmd/view.rs` | Switching into Web Layout resets zoom to 100% and clears the Print view's fit mode (Page Width, One Page…). | Web Layout is the phone's edit view; it was inheriting the Print view's page-width zoom. |
-| Draw | `crates/engine/src/cmd/draw.rs`, `crates/engine/src/cmd/objects.rs` | Done (`draw.select`) clears the lasso and marks the ink object next to the caret as dismissed, so it no longer counts as selected until the caret moves. | After drawing and tapping Done, a drag moved the stroke instead of selecting text. |
-| Review | `crates/engine/src/cmd/review.rs` (`list_comments`) | Each comment in the list also reports `anchorText`: the text it is attached to, within one paragraph, at most 200 characters. | Lets the phone's comment list show what each comment is about. Additive; existing fields are unchanged. |
-| Fonts | `crates/fonts/src/fontdb.rs` | On Android, system fonts are looked up in `/system/fonts`, `/product/fonts`, `/system_ext/fonts` and `/vendor/fonts`, through a new `android_font_dirs()`. | Android keeps its fonts there, not in the Linux paths the code used. Other platforms are unchanged. |
+| Draw | `crates/engine/src/cmd/draw.rs`, `crates/engine/src/cmd/objects/select.rs` | Done (`draw.select`) clears the lasso and marks the ink object next to the caret as dismissed, so it no longer counts as selected until the caret moves. | After drawing and tapping Done, a drag moved the stroke instead of selecting text. |
+| Review | `crates/engine/src/cmd/review/comments.rs` (`list_comments`) | Each comment in the list also reports `anchorText`: the text it is attached to, within one paragraph, at most 200 characters. | Lets the phone's comment list show what each comment is about. Additive; existing fields are unchanged. |
+| Fonts | `crates/fonts/src/fontdb/names.rs` | On Android, system fonts are looked up in `/system/fonts`, `/product/fonts`, `/system_ext/fonts` and `/vendor/fonts`, through a new `android_font_dirs()`. | Android keeps its fonts there, not in the Linux paths the code used. Other platforms are unchanged. |
 | Read Aloud | `crates/engine/src/speech.rs` | New `Backend::Host`, a `SpeechHost` trait (speak, poll, stop) and `ReadAloud::use_host()`. The same worker and queue speak through the host instead of a system program. Desktop and web keep their backend; `Hold` (silence) is kept. | Android has no speech program to spawn. The Android host speaks through `TextToSpeech`, so the player works there without any change to desktop behaviour. |
-| Text fields | `vendor/egui` (TextEdit: a focused field that is off screen still reports its IME output, and is scrolled into view) and `vendor/egui-winit` (no `set_ime_allowed` on Android). Both wired by `Cargo.toml` `[patch.crates-io]`. | Settings text fields keep the keyboard up while typing. Without the first patch, a field the keyboard covers loses its IME output, so Android hides the keyboard and shows it again on every key, and letters get lost. The second stops GameActivity toggling the IME. | Patched egui 0.36.2 and egui-winit 0.36.2; see `vendor/*/LICENSE-NOTE.md`. Re-vendor or remove when egui is bumped. |
+| Text fields | `vendor/egui` (TextEdit: a focused field that is off screen still reports its IME output, and is scrolled into view) and `vendor/egui-winit` (no `set_ime_allowed` on Android). Both wired by `Cargo.toml` `[patch.crates-io]`, and `egui`/`egui-winit` also by `[patch."https://github.com/storytold/egui.git"]` so eframe uses the same copies. The patches are on storytold/egui rev `6d518fc` (egui 0.37). | Settings text fields keep the keyboard up while typing. Without the first patch, a field the keyboard covers loses its IME output, so Android hides the keyboard and shows it again on every key, and letters get lost. The second stops GameActivity toggling the IME. | Patched egui and egui-winit 0.37.0 (storytold/egui rev `6d518fc`); see `vendor/*/LICENSE-NOTE.md`. Re-vendor or remove when egui is bumped. |
 
 ## No behaviour change
 
@@ -46,11 +46,11 @@ listed one by one; they only apply in the phone layout, except for those listed 
 ## Tests added
 
 - `crates/engine/src/tests.rs`: `picture_fits_the_web_layout_column`.
-- `crates/engine/src/cmd/insert.rs`: `page_number_reaches_every_section`.
-- `crates/engine/src/cmd/draw.rs`: `done_drops_the_selection_left_by_a_stroke`.
-- `crates/engine/src/recovery/desktop.rs`: `flush_copies_the_latest_edit_before_the_interval`,
+- `crates/engine/src/cmd/insert/tests.rs`: `page_number_reaches_every_section`.
+- `crates/engine/src/cmd/draw/tests.rs`: `done_drops_the_selection_left_by_a_stroke`.
+- `crates/engine/src/recovery/desktop/tests.rs`: `flush_copies_the_latest_edit_before_the_interval`,
   `only_a_platform_without_file_locks_opens_a_record_unlocked`.
-- `crates/fonts/src/tests_sysfonts.rs`: `android_font_folders_are_scanned`.
+- `crates/fonts/src/fontdb/tests/sysfonts.rs`: `android_font_folders_are_scanned`.
 
 ## Interface changes that also reach desktop
 
@@ -62,4 +62,4 @@ switched on only in the phone layout. These apply everywhere:
 - Recent files can be opened through a host hook (`Services::open_location`) before the file
   system is tried. Desktop and web don't set the hook, so they behave as before.
 
-Last updated: 2026-10-25.
+Last updated: 2026-10-29.

@@ -1286,8 +1286,9 @@ fn comment_input_page(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context) {
     let buf_id = egui::Id::new("phone_comment_text");
     let mut text: String = ctx.data(|d| d.get_temp(buf_id)).unwrap_or_default();
     let focus = ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new("phone_comment_focus"))).unwrap_or(false);
-    let field = ui
-        .add(egui::TextEdit::multiline(&mut text).desired_rows(4).desired_width(f32::INFINITY).hint_text(crate::tl!("Write a comment").to_string()));
+    let field = crate::phone::compact_field(ui, |ui| {
+        ui.add(egui::TextEdit::multiline(&mut text).desired_rows(4).desired_width(f32::INFINITY).hint_text(crate::tl!("Write a comment").to_string()))
+    });
     if focus {
         field.request_focus();
     }
@@ -1405,12 +1406,14 @@ fn alt_text_field(app: &mut WordApp, ui: &mut Ui) {
     ui.horizontal(|ui| {
         ui.add_space(16.0);
         ui.vertical(|ui| {
-            ui.add(
-                egui::TextEdit::multiline(&mut buf)
-                    .desired_rows(3)
-                    .desired_width(ui.available_width() - 16.0)
-                    .hint_text(crate::tl!("Describe this picture").to_string()),
-            );
+            crate::phone::compact_field(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut buf)
+                        .desired_rows(3)
+                        .desired_width(ui.available_width() - 16.0)
+                        .hint_text(crate::tl!("Describe this picture").to_string()),
+                )
+            });
             ui.horizontal(|ui| {
                 if ui.add(egui::Button::new(crate::tl!("Save").to_string())).clicked() {
                     let _ = app.run("object.altText", json!({"text": buf.clone()}));
@@ -1642,7 +1645,7 @@ pub(crate) fn toggle_row(ui: &mut Ui, value: &mut bool, text: &str) -> egui::Res
         resp.mark_changed();
     }
     let on = *value;
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, on, text));
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::accesskit::Role::CheckBox, enabled, on, text));
     paint_state(ui, r, 0, m.on_surface, &resp);
     let painter = ui.painter();
     painter.galley(Pos2::new(r.left() + 16.0, r.center().y - galley.size().y / 2.0), galley, color);
@@ -1711,6 +1714,25 @@ pub(crate) fn touch_style(ui: &mut Ui) {
 /// (egui's TextEdit ignores `interact_size`, so the height is its `min_size`). Unchanged on desktop.
 pub(crate) fn touch_edit<'t>(ui: &Ui, edit: egui::TextEdit<'t>) -> egui::TextEdit<'t> {
     if active(ui.ctx()) { edit.min_size(vec2(0.0, TOUCH_H)).vertical_align(egui::Align::Center) } else { edit }
+}
+
+/// Runs `add` (a plain text field) on the phone with the pre-0.37 text field sizing: no height floor
+/// from `interact_size` (48 pt here, see `touch_style`), and the button padding that `touch_style`
+/// sets for buttons (12 pt) is not the field's frame margin, which is 4 x 2 pt as before. The
+/// field keeps its own height and its text stays centred. The change stays inside this scope.
+/// Unchanged on desktop.
+pub(crate) fn compact_field<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    if active(ui.ctx()) {
+        ui.scope(|ui| {
+            let spacing = &mut ui.style_mut().spacing;
+            spacing.interact_size.y = 0.0;
+            spacing.button_padding = vec2(4.0, 2.0);
+            add(ui)
+        })
+        .inner
+    } else {
+        add(ui)
+    }
 }
 
 /// Shows a dialog as a bottom sheet on the phone: the full width of the screen, a title row with a
