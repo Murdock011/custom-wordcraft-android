@@ -1222,3 +1222,24 @@ Checks:
 - `cargo test -q -p wordcraft-ui-egui -p wordcraft-android`: 29, 901 and 10 passed, 0 failed.
 - `cargo xtask wasm` ok; `cargo xtask assets` ok (86 files); `cargo fmt --all --check` clean.
 - Not covered on the emulator after the fix: drawer, tab sheets, Read mode, dialogs (headless only).
+
+## Update 50: recovery copy written on kill, font scale, Close (2026-10-30)
+Goal: keep typed text when Android kills the activity without a frame (lifecycle flush). Changes: `recovery/desktop.rs` (staged snapshot, `Flusher::write_staged`, quiet worker job), `recovery.rs` (`recovery_flusher`, stage each tick), `ime.rs` (`write_staged`, 500 ms budget), `android.rs` (`nativeFlushRecovery` writes staged copies first), `app.rs` (set the flusher after recovery starts), manifest `configChanges` adds `fontScale|density|smallestScreenSize|touchscreen|colorMode`.
+
+Checks:
+- `cargo check -p wordcraft-android -p wordcraft-engine`: passes (one pre-existing unused-import warning in `crates/fonts`).
+- `cargo test -q -p wordcraft-android -p wordcraft-engine`: 29, 1082 and 43 passed, 0 failed, 1 ignored.
+- `sh packaging/android-native/build-native.sh x86_64`: assembleDebug succeeds.
+- (a) font_scale 1.3 on emulator-5554: typed "survive2" stays, PID unchanged. font_scale reset to 1.0 by a trap. PASS.
+- (b) HOME, `am kill`, relaunch: the snapshot on disk holds "survive2" (`run-as ... grep -l survive2 files/recovery`). PASS for the write. Not seen: the Recover offer on relaunch. Launch shows the Start screen, the copy is not offered there. OPEN, see below.
+- (c) Close on a clean blank document (drawer > Close): CLOSE transition, process killed by `killProcess`. PASS. Close on a dirty document: Save / Don't Save / Cancel prompt shown, app keeps running until answered. PASS.
+- An earlier Close test (drawer after relaunch, unsaved text) did nothing. Not reproduced on the same path afterwards. Treated as a missed tap or the Start-screen state, not a code fault. No code change for Close.
+
+Recover offer at launch after a kill (0.12 regression), fixed:
+- Cause: not the copy list. On the first ready frame the list already held the copy (1 copy, not dirty), and `recovery_seen` latched. The page was set to Recover, then `backstage::phone_show` (and the desktop path) reset it to Home every frame, because with the Start screen up no document is open and `works_without_document` had no `recover`. So the offer never showed. The per-document slot filter in `recovery_documents()` is not involved.
+- Fix: `"recover"` added to `works_without_document` (backstage.rs). One-line change, no change to slot behaviour.
+- Test: `backstage::tests::a_killed_process_copy_opens_recover_after_the_start_screen` (fails before the fix: "the launch opens Recover, not Home"; passes after). The engine test `a_crash_leaves_every_dirty_document_s_copy` already covers the listing after a simulated kill.
+- Checks: `cargo test -q -p wordcraft-engine -p wordcraft-ui-egui -p wordcraft-android` passes (29, 1082, 43, 1039, 10 passed; 0 failed). `cargo fmt --all --check` clean after formatting the two recovery files. `cargo clippy` fails on pre-existing lints outside these changes (unused import in `crates/fonts`, deprecated egui `Id::new`/`WidgetType` in ui-egui). No clippy error points at the changed files.
+
+Emulator, not yet done for the regression: the device (emulator-5554) was not attached when the step ran, so no `am kill` relaunch screenshot yet. Pending: type "survive3", HOME, `am kill`, relaunch, expect the Recover page with the copy.
+Pre-fix comparison (v012-a APK) not run; Close works on this build, so it was not needed for the fix.

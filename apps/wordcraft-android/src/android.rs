@@ -180,6 +180,7 @@ pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nati
     _env: EnvUnowned<'local>,
     _this: JObject<'local>,
 ) {
+    ime::write_staged();
     ime::request_flush();
 }
 

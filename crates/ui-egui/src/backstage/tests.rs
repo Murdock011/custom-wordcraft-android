@@ -1211,3 +1211,19 @@ fn backstage_save_as_sidebar_opens_save_as_page() {
     h.run_steps(4);
     assert_eq!(h.state().ui.backstage_page, "saveAs");
 }
+
+/// A copy left by a killed process opens Recover at launch even after the Start screen is set
+/// up, as Android does before the recovery scan finishes (0.12 regression: Home, no offer).
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn a_killed_process_copy_opens_recover_after_the_start_screen() {
+    let (mut app, root) = recovery_fixture();
+    app.start_screen();
+    let (mut h, poll) = pending_recovery_harness(app, &root);
+    poll.set(true);
+    settle_recovery(&mut h);
+    assert_eq!(h.state().session.recovery_documents().len(), 1, "the copy is listed");
+    assert!(h.state().ui.backstage && h.state().ui.backstage_page == "recover", "the launch opens Recover, not Home");
+    drop(h);
+    let _ = std::fs::remove_dir_all(root);
+}

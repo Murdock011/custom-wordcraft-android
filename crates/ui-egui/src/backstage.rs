@@ -414,9 +414,11 @@ fn recovery_page(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
-/// The Backstage pages that work while no document is open (#1129).
+/// The Backstage pages that work while no document is open (#1129). Recover too: at launch it
+/// is offered over the Start screen, and it lists copies without a document (0.12 regression:
+/// the page was reset to Home every frame, so the offer never showed).
 fn works_without_document(page: &str) -> bool {
-    matches!(page, "home" | "new" | "open" | "options")
+    matches!(page, "home" | "new" | "open" | "options" | "recover")
 }
 
 fn heading(ui: &mut Ui, s: &str) {
