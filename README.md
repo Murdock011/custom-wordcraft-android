@@ -14,7 +14,7 @@
 
 ## Screenshots
 
-<p><img src="docs/screenshots/home.png" width="180" alt="Home screen"> <img src="docs/screenshots/document.png" width="180" alt="A sample document open in the editor"> <img src="docs/screenshots/home-tab.png" width="180" alt="Home tab of the ribbon with formatting controls"> <img src="docs/screenshots/font-dialog.png" width="180" alt="Font dialog"> <img src="docs/screenshots/options.png" width="180" alt="Options list"> <img src="docs/screenshots/read-mode.png" width="180" alt="Read mode"></p>
+<p><img src="docs/screenshots/home.png" width="180" alt="Home screen"> <img src="docs/screenshots/document.png" width="180" alt="A sample document open in the editor"> <img src="docs/screenshots/home-tab.png" width="180" alt="Home tab of the ribbon with formatting controls"> <img src="docs/screenshots/review-tab.png" width="180" alt="Review tab sheet with an icon for each command"> <img src="docs/screenshots/font-dialog.png" width="180" alt="Font dialog"> <img src="docs/screenshots/options.png" width="180" alt="Options list"> <img src="docs/screenshots/read-mode.png" width="180" alt="Read mode"></p>
 
 ## What this is
 
