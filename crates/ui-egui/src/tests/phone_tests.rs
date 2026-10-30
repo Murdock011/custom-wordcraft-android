@@ -691,3 +691,19 @@ fn phone_back_from_home_with_a_document_keeps_it() {
     assert!(!a.ui.backstage, "Back returns to the editor");
     assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Work", "the open document is kept");
 }
+
+/// Every phone menu row shows its own icon, not the "more" placeholder. `NO_ICON` lists the rows
+/// allowed to fall back to it; it is empty, so every row has a real icon.
+#[test]
+fn phone_menu_rows_have_real_icons() {
+    const NO_ICON: &[&str] = &[];
+    // The eight tabs of `phone::TABS`; a tab without rows yields none.
+    for tab in 0..8 {
+        for (label, id) in phone::rows(tab) {
+            if NO_ICON.contains(id) {
+                continue;
+            }
+            assert_ne!(phone::row_icon(id), "more", "{label} ({id}) falls back to the placeholder icon");
+        }
+    }
+}
