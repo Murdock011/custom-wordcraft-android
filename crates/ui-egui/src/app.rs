@@ -438,7 +438,11 @@ impl WordApp {
         let ctx_escape = ui.ctx().input(|i| i.key_pressed(egui::Key::Escape));
         // On a phone, Escape in an open Options category goes back to its list (options::phone_page).
         if ctx_escape && self.ui.backstage && !options::phone_category_open(ui.ctx()) {
-            self.ui.backstage = false;
+            if phone::active(ui.ctx()) {
+                crate::backstage::back_from_home(self);
+            } else {
+                self.ui.backstage = false;
+            }
         }
         // The list shows whenever Backstage is opened again.
         if !self.ui.backstage {

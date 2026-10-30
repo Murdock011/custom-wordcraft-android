@@ -606,3 +606,54 @@ fn phone_handle_press_off_centre_does_not_move_the_selection() {
         assert_eq!(a.session.sel.ordered(), before.ordered(), "a press off the handle's centre moves nothing");
     }
 }
+
+/// Home with nothing open (the Start screen, or after the document is closed) has no document to
+/// go back to: Back, and the back arrow, make a blank document as Blank document does, not an
+/// empty window.
+#[test]
+fn phone_back_from_home_with_nothing_open_makes_a_blank_document() {
+    let mut a = app();
+    a.start_screen();
+    let (_ctx, mut frame) = phone_frames(400.0);
+    for _ in 0..30 {
+        frame(&mut a, Vec::new());
+    }
+    assert!(a.ui.backstage && !a.has_document(), "Home with nothing open");
+    let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+    frame(&mut a, vec![esc]);
+    for _ in 0..3 {
+        frame(&mut a, Vec::new());
+    }
+    assert!(!a.ui.backstage, "Back leaves Home");
+    assert!(a.has_document(), "Back makes a blank document, not an empty window");
+    assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body), "", "the blank document is empty");
+
+    // The back arrow at the top right of the phone's app bar does the same.
+    let mut b = app();
+    b.start_screen();
+    let (_ctx, mut frame) = phone_frames(400.0);
+    for _ in 0..30 {
+        frame(&mut b, Vec::new());
+    }
+    phone_press(&mut b, &mut frame, egui::pos2(370.0, 28.0), 3);
+    assert!(!b.ui.backstage, "the back arrow leaves Home");
+    assert!(b.has_document(), "the back arrow makes a blank document");
+}
+
+/// With a document open, Back from Home returns to that document unchanged.
+#[test]
+fn phone_back_from_home_with_a_document_keeps_it() {
+    let mut a = WordApp::new(Session::new(wordcraft_doc::Document::from_text("Work")), Services::default());
+    a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
+    let (_ctx, mut frame) = phone_frames(400.0);
+    for _ in 0..30 {
+        frame(&mut a, Vec::new());
+    }
+    let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+    frame(&mut a, vec![esc]);
+    for _ in 0..3 {
+        frame(&mut a, Vec::new());
+    }
+    assert!(!a.ui.backstage, "Back returns to the editor");
+    assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Work", "the open document is kept");
+}
