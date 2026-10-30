@@ -35,7 +35,7 @@ currently based on WordCraft engine **0.12.0**.
 ## Download
 
 Builds are on the [Releases page](https://github.com/Murdock011/custom-wordcraft-android/releases).
-The latest is **0.2.0** (WordCraft engine 0.11.0): `custom-wordcraft-android-arm64.apk`, for 64-bit ARM phones
+The latest is **0.2.1** (WordCraft engine 0.12.0): `custom-wordcraft-android-arm64.apk`, for 64-bit ARM phones
 (arm64-v8a) only. It is signed with a debug key, so Android asks you to allow installs from your
 browser or file manager. It installs as `ai.storyteller.wordcraft.native`, next to any other
 WordCraft build.
