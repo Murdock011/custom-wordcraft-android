@@ -46,7 +46,8 @@ WordCraft build.
   and double-tap selection with handles, an icon menu for Cut, Copy and Paste.
 - Opening, saving and saving in place through the system file picker, Recent files, Open with and
   Share for .docx, .doc, .rtf, .odt, .txt and .md.
-- Recovery of unsaved work after Android closes the app.
+- Recovery of unsaved work after Android closes the app: text is saved the moment the app goes to
+  the background, and the next launch opens on Recover.
 - A phone layout: ribbon tabs as sheets, full-width icon bars, dialogs as bottom sheets with large
   buttons, Options as a list of pages with toggle switches.
 - Read Aloud with Android's text-to-speech, dark mode, rotation.
