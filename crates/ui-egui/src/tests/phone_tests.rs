@@ -2,6 +2,19 @@
 
 use super::*;
 
+/// Check for Updates downloads desktop installers and cannot update the Android app, so a phone
+/// offers it nowhere: Search Commands finds no command for it, and no phone sheet has one.
+#[test]
+fn phone_hides_check_for_updates() {
+    let (_ctx, mut frame) = phone_frames(412.0);
+    let mut a = app();
+    frame(&mut a, Vec::new());
+    assert!(a.phone, "a 412 pt wide screen is a phone");
+    for id in ["ui.checkForUpdates", "help.checkForUpdates"] {
+        assert!(a.session.registry.get(id).is_none(), "{id} is not a command a phone can search for");
+    }
+}
+
 /// Phone long press selects the whole word under the finger, whichever half of a letter (or of
 /// the last letter) it lands on: it used to drop the last letter ("peopl").
 #[test]
