@@ -14,11 +14,11 @@ pub struct RecoveryInfo {
 #[cfg(not(target_arch = "wasm32"))]
 mod desktop;
 #[cfg(not(target_arch = "wasm32"))]
+pub use desktop::Flusher;
+#[cfg(not(target_arch = "wasm32"))]
 use desktop::{Applied, Request};
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use desktop::{DocRecovery, Recovery, Slot};
-#[cfg(not(target_arch = "wasm32"))]
-pub use desktop::Flusher;
 
 impl Session {
     /// The desktop host supplies the profile folder and a thread-safe wakeup.

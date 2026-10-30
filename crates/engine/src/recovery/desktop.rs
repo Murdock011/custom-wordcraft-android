@@ -846,7 +846,11 @@ impl Recovery {
             d.slot.id = Some(id.clone());
             let name = d.path.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Untitled draft".into());
             let info = RecoveryInfo { id, name, saved_at: crate::cmd::now_iso() };
-            kept.push(Staged { document: d.id, revision: d.rev, snapshot: Box::new(Snapshot { version: 1, info, generation: 0, document: d.doc.clone() }) });
+            kept.push(Staged {
+                document: d.id,
+                revision: d.rev,
+                snapshot: Box::new(Snapshot { version: 1, info, generation: 0, document: d.doc.clone() }),
+            });
         }
         *staged = kept;
         Ok(())
