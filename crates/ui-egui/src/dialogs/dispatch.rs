@@ -1016,12 +1016,14 @@ fn commands_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         r.request_focus();
     }
     let reg = app.session.registry.clone();
+    // The phone hides the Agents commands: an AI agent or script needs a computer.
+    let phone = crate::phone::active(ui.ctx());
     // An empty box suggests a few common commands, as Word's Search does.
     let mut hits: Vec<&wordcraft_engine::CommandSpec> = if query.trim().is_empty() {
         ui.label(egui::RichText::new(tl!("Suggested")).font(semibold(12.5)));
         SEARCH_SUGGESTIONS.iter().filter_map(|id| reg.get(id)).collect()
     } else {
-        reg.all().iter().filter(|c| command_matches(c, query)).collect()
+        reg.all().iter().filter(|c| command_matches(c, query) && !(phone && c.location == "Agents")).collect()
     };
     hits.truncate(14);
     let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));

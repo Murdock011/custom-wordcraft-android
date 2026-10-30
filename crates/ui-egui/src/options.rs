@@ -120,6 +120,12 @@ pub const UNITS: [(Unit, &str); 5] = [
     (Unit::Picas, "Picas"),
 ];
 
+/// The panes a phone's Options list shows: every pane but Agents, which needs an AI agent or the
+/// control channel that a phone cannot run (the code stays for desktop).
+fn phone_panes() -> impl Iterator<Item = &'static str> {
+    PANES.into_iter().filter(|id| *id != "agents")
+}
+
 /// The pane names, in [`PANES`] order.
 fn pane_label(id: &str) -> &'static str {
     match id {
@@ -227,7 +233,7 @@ fn phone_page(app: &mut WordApp, ui: &mut Ui) {
         set_phone_category_open(&ctx, false);
     }
     if !phone_category_open(&ctx) {
-        for id in PANES {
+        for id in phone_panes() {
             if crate::phone::list_row(ui, m, pane_label(id), pane_icon(id), true).clicked() {
                 app.ui.options_pane = id.to_string();
                 set_phone_category_open(&ctx, true);
@@ -235,7 +241,7 @@ fn phone_page(app: &mut WordApp, ui: &mut Ui) {
         }
         return;
     }
-    let current = if PANES.contains(&app.ui.options_pane.as_str()) { app.ui.options_pane.clone() } else { "general".to_string() };
+    let current = if phone_panes().any(|id| id == app.ui.options_pane) { app.ui.options_pane.clone() } else { "general".to_string() };
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), egui::Sense::click());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Back")));
     if resp.hovered() || resp.is_pointer_button_down_on() {
@@ -1026,7 +1032,7 @@ mod phone_tests {
     use egui_kittest::kittest::Queryable;
     use serde_json::json;
 
-    use super::{PANES, phone_category_open};
+    use super::{phone_category_open, phone_panes};
     use crate::{Services, WordApp};
 
     /// File › Options open at `width` pt (a phone is 412 pt wide, the desktop 1440).
@@ -1050,11 +1056,18 @@ mod phone_tests {
     fn phone_options_shows_the_list_first() {
         let h = options(412.0);
         assert!(!phone_category_open(&h.ctx), "the list is shown first");
-        for id in PANES {
+        for id in phone_panes() {
             let label = crate::i18n::tr(crate::i18n::Lang::from_pref("en"), super::pane_label(id));
             assert!(h.query_all_by_label(label).next().is_some(), "{label} is a row of the list");
         }
         assert!(h.query_all_by_label("Icons").next().is_none(), "the General settings wait behind the General row");
+    }
+
+    /// The phone's Options list has no Agents: an AI agent or the control channel needs a computer.
+    #[test]
+    fn phone_options_list_has_no_agents() {
+        let h = options(412.0);
+        assert!(h.query_all_by_label("Agents").next().is_none(), "Agents is hidden on the phone");
     }
 
     /// Update 32: a tapped category opens full width with its controls on the screen, and Back
@@ -1087,7 +1100,7 @@ mod phone_tests {
     fn every_phone_category_control_is_48_pt_tall() {
         use egui::accesskit::Role;
         let roles = [Role::CheckBox, Role::RadioButton, Role::ComboBox, Role::Button, Role::TextInput, Role::SpinButton, Role::Slider];
-        for id in PANES {
+        for id in phone_panes() {
             let mut h = options(412.0);
             let label = crate::i18n::tr(crate::i18n::Lang::from_pref("en"), super::pane_label(id));
             h.get_by_role_and_label(Role::Button, label).click();
@@ -1102,7 +1115,7 @@ mod phone_tests {
                     assert!(r.left() >= 0.0 && r.right() <= 412.5, "{label}: {role:?} runs off the screen (rect {r:?})");
                 }
             }
-            assert!(checked > 0 || id == "agents", "{label} has controls to check");
+            assert!(checked > 0, "{label} has controls to check");
         }
     }
 
