@@ -84,6 +84,16 @@ fn set_drawer(ctx: &egui::Context, open: bool) {
     ctx.data_mut(|d| d.insert_temp(drawer_id(), open));
 }
 
+/// Leaves Home on a phone (the back arrow, or Android Back as Escape). With no document open,
+/// Home has nothing behind it, so this makes a blank document as Blank document does, rather than
+/// leaving an empty window.
+pub fn back_from_home(app: &mut WordApp) {
+    if !app.has_document() && app.ui.backstage_page == "home" {
+        let _ = app.run("file.new", json!({"template": "blank"}));
+    }
+    app.ui.backstage = false;
+}
+
 /// The Backstage on a phone: a top app bar (menu, the page's name, back), the pages in a
 /// navigation drawer the menu button opens, and the page below. The desktop sidebar is too wide
 /// for a phone, so it is not drawn.
@@ -106,7 +116,7 @@ fn phone_show(app: &mut WordApp, ui: &mut Ui) {
                 ui.add(egui::Label::new(egui::RichText::new(tl!(title)).font(medium(18.0))).truncate());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if icon_only(ui, "chevronLeft", "Back").clicked() {
-                        app.ui.backstage = false;
+                        back_from_home(app);
                         app.canvas.want_focus = true;
                     }
                 });
