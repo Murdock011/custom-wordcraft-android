@@ -17,6 +17,8 @@ mod desktop;
 use desktop::{Applied, Request};
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use desktop::{DocRecovery, Recovery, Slot};
+#[cfg(not(target_arch = "wasm32"))]
+pub use desktop::Flusher;
 
 impl Session {
     /// The desktop host supplies the profile folder and a thread-safe wakeup.
@@ -69,6 +71,9 @@ impl Session {
                 self.apply_recovery(&mut r, e);
             }
             self.open_held_restore(&mut r);
+            if let Err(e) = r.stage(self.recovery_docs()) {
+                r.error = Some(e);
+            }
             if let Err(e) = r.tick(self.recovery_docs(), std::time::Instant::now()) {
                 r.error = Some(e);
             }
@@ -127,6 +132,11 @@ impl Session {
             r.flush();
         }
     }
+    /// A handle a host keeps to write the staged copies from a lifecycle callback, while no frame runs.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn recovery_flusher(&self) -> Option<Flusher> {
+        self.recovery.as_ref().map(Recovery::flusher)
+    }
     pub fn recovery_wait(&self) -> Option<std::time::Duration> {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(r) = &self.recovery {
@@ -169,6 +179,7 @@ impl Session {
             && let Some(id) = self.recovery_slot.id.take()
         {
             r.close(id);
+            r.clear_staged();
             self.recovery_slot.revision = Some(self.rev());
         }
     }

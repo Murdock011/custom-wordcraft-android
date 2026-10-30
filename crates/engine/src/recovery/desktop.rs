@@ -4,7 +4,8 @@ use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, mpsc};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 use wordcraft_doc::Document;
 
@@ -390,6 +391,8 @@ enum Job {
     /// Delete a record: an open document's copy it no longer needs, a closed document's, or one
     /// from an earlier run that the user discarded (`None`).
     Discard(String, Option<u64>),
+    /// A copy staged for a host that backgrounds the app: written without an event (see [`Flusher`]).
+    Quiet(Box<Snapshot>),
 }
 enum Outcome {
     Done,
@@ -485,6 +488,53 @@ pub(crate) struct DocRecovery<'a> {
     pub path: Option<&'a Path>,
     pub slot: &'a mut Slot,
 }
+/// A copy the frame prepared for one document revision. [`Flusher`] writes it when the host backgrounds the app.
+pub(crate) struct Staged {
+    document: u64,
+    revision: u64,
+    snapshot: Box<Snapshot>,
+}
+/// Writes the staged copies from another thread (a host's lifecycle callback) within a time budget.
+/// The worker thread does the write, so this never waits for a frame, which may not run again.
+#[derive(Clone)]
+pub struct Flusher {
+    tx: mpsc::SyncSender<Job>,
+    staged: Arc<Mutex<Vec<Staged>>>,
+    queued: Arc<AtomicU64>,
+    done: Arc<AtomicU64>,
+}
+impl Flusher {
+    /// Writes the copies staged since the last call, waiting at most `budget` in all. A worker
+    /// that has stopped, or a write that runs past the budget, ends the wait.
+    pub fn write_staged(&self, budget: Duration) {
+        let staged = match self.staged.lock() {
+            Ok(mut s) => std::mem::take(&mut *s),
+            Err(_) => return,
+        };
+        let deadline = Instant::now() + budget;
+        let mut last = None;
+        for s in staged {
+            let mut job = Job::Quiet(s.snapshot);
+            loop {
+                match self.tx.try_send(job) {
+                    Ok(()) => {
+                        last = Some(self.queued.fetch_add(1, Ordering::SeqCst) + 1);
+                        break;
+                    }
+                    Err(mpsc::TrySendError::Full(back)) if Instant::now() < deadline => {
+                        job = back;
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+        let Some(target) = last else { return };
+        while self.done.load(Ordering::SeqCst) < target && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+}
 /// The process's recovery worker: one thread and one store for every open document, so records
 /// are locked once per process and the list of copies is the same whichever document is shown.
 pub(crate) struct Recovery {
@@ -502,11 +552,17 @@ pub(crate) struct Recovery {
     pub held: Option<(Box<Snapshot>, Request)>,
     /// Set by `flush`: changed documents are copied whatever their interval, until a pass finds none.
     flush_all: bool,
+    staged: Arc<Mutex<Vec<Staged>>>,
+    /// Jobs queued (by this thread or a [`Flusher`]) and jobs the worker has finished.
+    queued: Arc<AtomicU64>,
+    done: Arc<AtomicU64>,
 }
 impl Recovery {
     pub fn start(root: PathBuf, wake: Arc<dyn Fn() + Send + Sync>) -> Result<Self, String> {
         let (tx, jobs) = mpsc::sync_channel(1);
         let (events, rx) = mpsc::channel();
+        let done = Arc::new(AtomicU64::new(0));
+        let counted = done.clone();
         std::thread::Builder::new()
             .name("wordcraft-recovery".into())
             .spawn(move || {
@@ -525,6 +581,8 @@ impl Recovery {
                 wake();
                 while let Ok(job) = jobs.recv() {
                     let mut permanent = false;
+                    // A staged copy is written for a host, not for the app thread: no event for it.
+                    let quiet = matches!(job, Job::Quiet(_));
                     let (mut document, mut discard) = (None, None);
                     let result = match job {
                         Job::Save(s, d) => {
@@ -534,6 +592,10 @@ impl Recovery {
                                 e.message
                             })
                         }
+                        Job::Quiet(s) => store.save(*s).map(|_| Outcome::Done).map_err(|e| {
+                            permanent = e.permanent;
+                            e.message
+                        }),
                         Job::Scan => store.scan().map(|_| Outcome::Done),
                         Job::Load(id, request) => store.load(&id).map(|s| Outcome::Loaded(Box::new(s), request)),
                         Job::Discard(id, d) => {
@@ -543,6 +605,13 @@ impl Recovery {
                             r
                         }
                     };
+                    counted.fetch_add(1, Ordering::SeqCst);
+                    if quiet {
+                        if let Err(e) = &result {
+                            log::warn!("recovery: {e}");
+                        }
+                        continue;
+                    }
                     if result.is_ok() {
                         (document, discard) = (None, None);
                     }
@@ -564,6 +633,9 @@ impl Recovery {
             closed: Vec::new(),
             held: None,
             flush_all: false,
+            staged: Arc::new(Mutex::new(Vec::new())),
+            queued: Arc::new(AtomicU64::new(0)),
+            done,
         })
     }
     fn queue(&mut self, job: Job) -> Result<(), String> {
@@ -574,6 +646,7 @@ impl Recovery {
             return Err("recovery is busy; try again when it finishes".into());
         }
         self.tx.try_send(job).map_err(|e| e.to_string())?;
+        self.queued.fetch_add(1, Ordering::SeqCst);
         self.busy = true;
         self.error = None;
         Ok(())
@@ -740,6 +813,43 @@ impl Recovery {
     /// The next tick copies every changed document whatever its interval.
     pub fn flush(&mut self) {
         self.flush_all = true;
+    }
+    /// The handle a host uses to write staged copies from its own thread.
+    pub fn flusher(&self) -> Flusher {
+        Flusher { tx: self.tx.clone(), staged: self.staged.clone(), queued: self.queued.clone(), done: self.done.clone() }
+    }
+    /// Drops every staged copy. The next [`stage`](Self::stage) makes them again where still wanted.
+    pub fn clear_staged(&self) {
+        if let Ok(mut s) = self.staged.lock() {
+            s.clear();
+        }
+    }
+    /// Prepares a copy of each dirty document at its current revision, unless one is already
+    /// staged for it. Runs in the frame before [`tick`](Self::tick), so the copy exists before the
+    /// host backgrounds the app and no frame runs again. A staged copy is cloned from the document
+    /// once per revision.
+    pub fn stage<'a>(&self, docs: impl Iterator<Item = DocRecovery<'a>>) -> Result<(), String> {
+        let mut staged = self.staged.lock().map_err(|_| "recovery staging is unavailable".to_string())?;
+        let mut kept = Vec::new();
+        for d in docs {
+            if !d.wants_copy {
+                continue;
+            }
+            if let Some(i) = staged.iter().position(|s| s.document == d.id && s.revision == d.rev) {
+                kept.push(staged.swap_remove(i));
+                continue;
+            }
+            let id = match &d.slot.id {
+                Some(id) => id.clone(),
+                None => new_id()?,
+            };
+            d.slot.id = Some(id.clone());
+            let name = d.path.and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Untitled draft".into());
+            let info = RecoveryInfo { id, name, saved_at: crate::cmd::now_iso() };
+            kept.push(Staged { document: d.id, revision: d.rev, snapshot: Box::new(Snapshot { version: 1, info, generation: 0, document: d.doc.clone() }) });
+        }
+        *staged = kept;
+        Ok(())
     }
     pub fn refresh(&mut self) -> Result<(), String> {
         self.queue(Job::Scan)

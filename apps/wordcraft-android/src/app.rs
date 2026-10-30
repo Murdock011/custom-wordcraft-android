@@ -106,8 +106,9 @@ impl Shell {
         // Local recovery, the desktop store: copies of unsaved work survive the process being killed.
         if let Some(dir) = files::recovery_dir() {
             let wake: std::sync::Arc<dyn Fn() + Send + Sync> = std::sync::Arc::new(ime::wake);
-            if let Err(e) = app.session.enable_recovery(dir, wake) {
-                log::warn!("local recovery unavailable: {e}");
+            match app.session.enable_recovery(dir, wake) {
+                Ok(()) => ime::set_flusher(app.session.recovery_flusher()),
+                Err(e) => log::warn!("local recovery unavailable: {e}"),
             }
         }
         // Nothing to open: Home comes up over the blank document when the Start screen option is on.

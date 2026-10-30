@@ -64,6 +64,28 @@ pub static INSET_TOP: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI3
 /// work to the recovery store, before Android can kill the process.
 pub static FLUSH: AtomicBool = AtomicBool::new(false);
 
+/// The recovery writer for the lifecycle callbacks (set once the session has recovery).
+#[cfg(target_os = "android")]
+static FLUSHER: Mutex<Option<wordcraft_engine::recovery::Flusher>> = Mutex::new(None);
+
+#[cfg(target_os = "android")]
+pub fn set_flusher(flusher: Option<wordcraft_engine::recovery::Flusher>) {
+    if let Ok(mut f) = FLUSHER.lock() {
+        *f = flusher;
+    }
+}
+
+/// Writes the copies staged by the last frame, from the calling thread, within 500 ms. Runs in
+/// onPause/onStop: once the window is gone no frame runs, so the flag alone would never be acted on.
+#[cfg(target_os = "android")]
+pub fn write_staged() {
+    if let Ok(f) = FLUSHER.lock()
+        && let Some(flusher) = f.as_ref()
+    {
+        flusher.write_staged(std::time::Duration::from_millis(500));
+    }
+}
+
 pub fn request_flush() {
     FLUSH.store(true, std::sync::atomic::Ordering::Relaxed);
     wake();
