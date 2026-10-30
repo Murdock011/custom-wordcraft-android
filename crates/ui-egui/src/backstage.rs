@@ -84,11 +84,11 @@ fn set_drawer(ctx: &egui::Context, open: bool) {
     ctx.data_mut(|d| d.insert_temp(drawer_id(), open));
 }
 
-/// Leaves Home on a phone (the back arrow, or Android Back as Escape). With no document open,
-/// Home has nothing behind it, so this makes a blank document as Blank document does, rather than
-/// leaving an empty window.
+/// Leaves the Backstage on a phone (the back arrow, or Android Back as Escape). With no document
+/// open, there is nothing behind it, so this makes a blank document as Blank document does, rather
+/// than leaving an empty window.
 pub fn back_from_home(app: &mut WordApp) {
-    if !app.has_document() && app.ui.backstage_page == "home" {
+    if !app.has_document() {
         let _ = app.run("file.new", json!({"template": "blank"}));
     }
     app.ui.backstage = false;

@@ -640,6 +640,27 @@ fn phone_back_from_home_with_nothing_open_makes_a_blank_document() {
     assert!(b.has_document(), "the back arrow makes a blank document");
 }
 
+/// Back from the Recover page with nothing open makes a blank document too, not an empty window.
+#[test]
+fn phone_back_from_recover_with_nothing_open_makes_a_blank_document() {
+    let mut a = app();
+    a.start_screen();
+    a.ui.backstage_page = "recover".into();
+    let (_ctx, mut frame) = phone_frames(400.0);
+    for _ in 0..30 {
+        frame(&mut a, Vec::new());
+    }
+    assert!(a.ui.backstage && !a.has_document(), "Recover with nothing open");
+    let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+    frame(&mut a, vec![esc]);
+    for _ in 0..3 {
+        frame(&mut a, Vec::new());
+    }
+    assert!(!a.ui.backstage, "Back leaves the Backstage");
+    assert!(a.has_document(), "Back makes a blank document, not an empty window");
+    assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body), "", "the blank document is empty");
+}
+
 /// With a document open, Back from Home returns to that document unchanged.
 #[test]
 fn phone_back_from_home_with_a_document_keeps_it() {
