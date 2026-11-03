@@ -42,6 +42,8 @@ When it builds and the tests pass, merge the branch into `main`, push to this fo
 [ENGINE-CHANGES.md](ENGINE-CHANGES.md) if any engine change was dropped (upstream fixed it
 themselves) or had to be reworked.
 
+Phone builds embed [craft-i18n](https://github.com/storytold/craft-i18n) at the commit in `craft-i18n.rev` (`build-native.sh` clones it into `$HOME/.cache/craft-i18n` if `CRAFT_I18N_DIR` isn't set); bump that file when upstream's data changes.
+
 ## Keeping updates easy
 
 - Keep changes below the interface rare and small, and list each one in

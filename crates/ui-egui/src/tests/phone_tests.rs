@@ -707,3 +707,20 @@ fn phone_menu_rows_have_real_icons() {
         }
     }
 }
+
+/// Phone Spelling & Grammar draws no task pane, so it opens the suggestions menu at the caret
+/// instead (as before v0.15); the desktop pane stays with upstream.
+#[test]
+fn phone_spelling_opens_the_suggestions_menu_not_the_pane() {
+    let (_ctx, mut frame) = phone_frames(412.0);
+    let mut a = app();
+    frame(&mut a, Vec::new());
+    assert!(a.phone, "a 412 pt wide screen is a phone");
+    a.run("text.insert", json!({"text": "Thsi is wrng"})).unwrap();
+    a.run("review.spelling", json!({})).unwrap();
+    assert!(a.spelling_review.is_none(), "the phone opens no task pane");
+    for _ in 0..3 {
+        frame(&mut a, Vec::new());
+    }
+    assert!(a.canvas.context_menu_open, "the suggestions menu is open");
+}
