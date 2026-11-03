@@ -1182,13 +1182,13 @@ fn close_on_android_quits_the_app() {
     let services = Services { close_quits: true, ..Default::default() };
     let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), services);
     a.run("ui.backstage", json!({"value": true, "page": "home"})).unwrap();
-    super::activate(&mut a, "close");
+    super::go_to_page(&mut a, "close");
     assert!(a.quit_requested, "a clean document quits the app");
 
     let services = Services { close_quits: true, ..Default::default() };
     let mut b = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), services);
     b.run("text.insert", json!({"text": "Draft"})).unwrap();
-    super::activate(&mut b, "close");
+    super::go_to_page(&mut b, "close");
     assert!(!b.quit_requested && matches!(b.dialog, Some(crate::dialogs::Dialog::SaveChanges { .. })), "unsaved changes ask first");
     b.run("ui.saveChanges", json!({"answer": "dontSave"})).unwrap();
     assert!(b.quit_requested, "Don't Save then quits the app");

@@ -48,8 +48,9 @@ use insert::insert;
 pub(crate) use language::PROOFING_LANGUAGES;
 #[cfg(test)]
 use language::language_checks;
+pub(crate) use language::language_name;
 pub(crate) use language::{
-    caret_language, caret_language_proofed, caret_missing_dictionary, caret_no_proof, caret_unreadable_dictionary, language_menu, language_name,
+    caret_language, caret_language_proofed, caret_missing_dictionary, caret_no_proof, caret_unreadable_dictionary, language_menu,
 };
 use layout::layout;
 #[cfg(test)]
