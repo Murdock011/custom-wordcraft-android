@@ -463,17 +463,26 @@ fn heading(ui: &mut Ui, s: &str) {
 
 /// Draws a template thumbnail and caption as one accessible button, lazily renders and caches a
 /// region-aware page preview, and creates a document from the template on click.
-fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
+/// `w` is the tile's width: 150 pt, or a phone column (see `template_grid`).
+fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str, w: f32) {
     let t = Tokens::get(ui.ctx());
+    let phone = crate::phone::active(ui.ctx());
+    let h = 194.0 * w / 150.0;
     ui.vertical(|ui| {
         // The thumbnail and its caption are one button named by the caption, so a screen reader
         // announces "Blank document, button" rather than unnamed text (#3176); the caption opens
         // the template too, as in Word.
         let caption = crate::i18n::tc("template", label);
-        let galley = ui.painter().layout_no_wrap(caption.to_string(), regular(12.5), ui.visuals().text_color());
-        let (tile, resp) = ui.allocate_exact_size(vec2(galley.size().x.max(150.0), 194.0 + galley.size().y), Sense::click());
+        // On the phone the caption wraps inside its column; on the desktop it runs on, as before.
+        let galley = if phone {
+            ui.painter().layout(caption.to_string(), regular(12.5), ui.visuals().text_color(), w)
+        } else {
+            ui.painter().layout_no_wrap(caption.to_string(), regular(12.5), ui.visuals().text_color())
+        };
+        let tile_w = if phone { w } else { galley.size().x.max(w) };
+        let (tile, resp) = ui.allocate_exact_size(vec2(tile_w, h + galley.size().y), Sense::click());
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), caption));
-        let r = Rect::from_min_size(tile.min, vec2(150.0, 194.0));
+        let r = Rect::from_min_size(tile.min, vec2(w, h));
         ui.painter().rect(
             r,
             2.0,
@@ -482,7 +491,7 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
             egui::StrokeKind::Inside,
         );
         let ppp = ui.ctx().pixels_per_point();
-        let key = format!("tpl:{template}:{ppp}");
+        let key = format!("tpl:{template}:{ppp}:{w}");
         let region = app.session.region();
         let tex = ui.ctx().data(|d| d.get_temp::<egui::TextureHandle>(egui::Id::unique(&key))).or_else(|| {
             let mut s = wordcraft_engine::Session::new(wordcraft_doc::Document::new());
@@ -491,7 +500,7 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
             let _ = s.run("file.new", &json!({"template": template}));
             let l = s.export_layout();
             let page = l.pages.first()?;
-            let img = wordcraft_render::render_page(&s.doc, page, 150.0 / page.w * ppp, &crate::canvas::screen_render_options());
+            let img = wordcraft_render::render_page(&s.doc, page, w / page.w * ppp, &crate::canvas::screen_render_options());
             let px = img.to_straight();
             let h = ui.ctx().load_texture(
                 &key,
@@ -509,6 +518,21 @@ fn template_tile(ui: &mut Ui, app: &mut WordApp, label: &str, template: &str) {
             let _ = app.run("file.new", json!({"template": template}));
             app.ui.backstage = false;
             app.canvas.want_focus = true;
+        }
+    });
+}
+
+/// The phone's template tiles in two columns with a 16 pt gutter, each as wide as half the
+/// available width less the gutter, so the grid fits the screen and nothing is cut off.
+fn template_grid(ui: &mut Ui, app: &mut WordApp, items: &[(&'static str, &'static str)]) {
+    let w = ((ui.available_width() - 16.0) / 2.0).floor().max(0.0);
+    egui::Grid::new("template_grid").num_columns(2).spacing(vec2(16.0, 16.0)).show(ui, |ui| {
+        let n = items.len();
+        for (i, &(label, template)) in items.iter().enumerate() {
+            template_tile(ui, app, label, template, w);
+            if i % 2 == 1 || i + 1 == n {
+                ui.end_row();
+            }
         }
     });
 }
@@ -546,15 +570,20 @@ fn home_page(app: &mut WordApp, ui: &mut Ui) {
             "Good evening"
         },
     );
-    // A row of tiles that scrolls sideways when the window is narrow, as on a phone.
-    egui::ScrollArea::horizontal().id_salt("home_templates").show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing = vec2(18.0, 0.0);
-            for (label, template) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
-                template_tile(ui, app, label, template);
-            }
+    if crate::phone::active(ui.ctx()) {
+        let shown: Vec<_> = TEMPLATES.into_iter().take(HOME_TEMPLATES).collect();
+        template_grid(ui, app, &shown);
+    } else {
+        // A row of tiles that scrolls sideways when the window is narrow.
+        egui::ScrollArea::horizontal().id_salt("home_templates").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = vec2(18.0, 0.0);
+                for (label, template) in TEMPLATES.into_iter().take(HOME_TEMPLATES) {
+                    template_tile(ui, app, label, template, 150.0);
+                }
+            });
         });
-    });
+    }
     ui.add_space(8.0);
     let more = ui.add(egui::Label::new(egui::RichText::new(tl!("More templates →")).font(medium(13.5)).color(t.accent)).sense(Sense::click()));
     if more.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
@@ -586,12 +615,16 @@ fn new_page(app: &mut WordApp, ui: &mut Ui) {
         return;
     }
     if !found.is_empty() {
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = vec2(18.0, 18.0);
-            for (label, template) in found {
-                template_tile(ui, app, label, template);
-            }
-        });
+        if crate::phone::active(ui.ctx()) {
+            template_grid(ui, app, &found);
+        } else {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(18.0, 18.0);
+                for (label, template) in found {
+                    template_tile(ui, app, label, template, 150.0);
+                }
+            });
+        }
     }
     // Personal: the user templates folder's templates; a folder per category, as in Word.
     let Some(folder) = folder else { return };

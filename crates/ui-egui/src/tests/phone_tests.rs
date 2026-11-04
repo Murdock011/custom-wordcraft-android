@@ -813,3 +813,52 @@ fn phone_file_pages_are_touch_sized() {
         }
     }
 }
+
+/// The Font dialog's Size field is a 48 pt touch target on the phone, as the other sheet fields are.
+#[test]
+fn phone_font_size_field_is_touch_sized() {
+    let mut a = app();
+    a.dialog = dialogs::Dialog::open("font", &mut a);
+    assert!(a.dialog.is_some(), "font opens");
+    let mut h = egui_kittest::Harness::builder().with_accessibility_check(false).with_size(egui::vec2(412.0, 915.0)).build_ui_state(
+        |ui, app: &mut WordApp| {
+            let ctx = ui.ctx().clone();
+            app.logic(&ctx);
+            app.ui(ui);
+        },
+        a,
+    );
+    h.run_steps(4);
+    let found: Vec<_> = h.query_all_by_label("Size:").map(|n| n.rect()).collect();
+    assert!(found.iter().any(|r| r.height() >= 40.0), "the Size field is 40 pt tall or more on the phone: {found:?}");
+}
+
+/// New and Home lay their template tiles out in two columns that fit the 412 pt screen, so the
+/// last tile is no longer cut off at the right edge.
+#[test]
+fn phone_template_tiles_fit_the_width() {
+    let cases: [(&str, &[&str]); 2] = [
+        ("new", &["Blank document", "Studio handbook (sample)", "Letter", "Résumé", "Report"]),
+        ("home", &["Blank document", "Studio handbook (sample)", "Letter", "Résumé"]),
+    ];
+    for (page, labels) in cases {
+        let mut a = app();
+        a.run("ui.backstage", json!({"value": true, "page": page})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(412.0, 915.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        for label in labels {
+            let found: Vec<_> = h.query_all_by_label(label).map(|n| n.rect()).collect();
+            assert!(!found.is_empty(), "{page} shows {label}");
+            for r in found {
+                assert!(r.right() <= 412.5 && r.left() >= -0.5, "{page}: {label} fits the width: {r:?}");
+            }
+        }
+    }
+}

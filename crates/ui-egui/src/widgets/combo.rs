@@ -242,7 +242,13 @@ fn combo_impl(ui: &mut Ui, options: ComboOptions<'_>) -> Option<String> {
         let te = egui::TextEdit::singleline(&mut text).id(te_id).desired_width(width - 16.0).font(regular(12.0)).margin(vec2(4.0, 3.0));
         // The arrow's box is painted here, under the field, once its size is known.
         let arrow_bg = ui.painter().add(egui::Shape::Noop);
-        let resp = crate::phone::compact_field(ui, |ui| ui.add(te));
+        // On the phone the field is a 48 pt touch target (its arrow follows its height).
+        let resp = if crate::phone::active(ui.ctx()) {
+            let te = crate::phone::touch_edit(ui, te);
+            ui.add(te)
+        } else {
+            ui.add(te)
+        };
         // The field says what it is: without a name a screen reader has only "edit" to say
         // (#3172). The arrow says whose options it opens, as the split buttons' arrow does.
         if !tip.is_empty() {

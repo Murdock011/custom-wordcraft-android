@@ -444,7 +444,12 @@ fn autocorrect_tab(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) {
     ui.checkbox(&mut o.cap_sentences, tl!("Capitalize first letter of sentences"));
     ui.horizontal(|ui| {
         ui.add_space(18.0);
-        if ui.small_button(tl!("Exceptions…")).clicked() {
+        let exceptions_btn = if crate::phone::active(ui.ctx()) {
+            egui::Button::new(tl!("Exceptions…")).min_size(vec2(0.0, crate::phone::TOUCH_H))
+        } else {
+            egui::Button::new(tl!("Exceptions…")).small()
+        };
+        if ui.add(exceptions_btn).clicked() {
             f.show_exceptions = !f.show_exceptions;
         }
     });
@@ -456,19 +461,30 @@ fn autocorrect_tab(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) {
     ui.checkbox(&mut o.cap_days, tl!("Capitalize names of days"));
     ui.checkbox(&mut o.caps_lock, tl!("Correct accidental usage of cAPS LOCK key"));
     ui.checkbox(&mut o.replace_text, tl!("Replace text as you type"));
-    egui::Grid::new("ac_boxes").num_columns(2).spacing(vec2(8.0, 2.0)).show(ui, |ui| {
+    if crate::phone::active(ui.ctx()) {
+        // Stacked, full-width, 48 pt fields on the phone: Replace, then With.
         let replace_label = ui.label(tl!("Replace:"));
+        let w = ui.available_width();
+        touch_field(ui, egui::TextEdit::singleline(&mut f.from).desired_width(w)).labelled_by(replace_label.id);
         let with_label = ui.label(tl!("With:"));
-        ui.end_row();
-        crate::phone::compact_field(ui, |ui| ui.add(egui::TextEdit::singleline(&mut f.from).desired_width(110.0))).labelled_by(replace_label.id);
-        crate::phone::compact_field(ui, |ui| ui.add(egui::TextEdit::singleline(&mut f.to).desired_width(260.0))).labelled_by(with_label.id);
-        ui.end_row();
-    });
+        touch_field(ui, egui::TextEdit::singleline(&mut f.to).desired_width(w)).labelled_by(with_label.id);
+    } else {
+        egui::Grid::new("ac_boxes").num_columns(2).spacing(vec2(8.0, 2.0)).show(ui, |ui| {
+            let replace_label = ui.label(tl!("Replace:"));
+            let with_label = ui.label(tl!("With:"));
+            ui.end_row();
+            ui.add(egui::TextEdit::singleline(&mut f.from).desired_width(110.0)).labelled_by(replace_label.id);
+            ui.add(egui::TextEdit::singleline(&mut f.to).desired_width(260.0)).labelled_by(with_label.id);
+            ui.end_row();
+        });
+    }
     // The list, filtered to what's typed in Replace (as Word scrolls to it).
+    let phone = crate::phone::active(ui.ctx());
     let list = f.options.list();
     let typed = f.from.trim().to_lowercase();
     let mut picked: Option<(String, String)> = None;
-    egui::ScrollArea::vertical().id_salt("ac_list").max_height(170.0).auto_shrink([false, true]).show(ui, |ui| {
+    let (list_h, row_w, row_h) = if phone { (240.0, 170.0, crate::phone::TOUCH_H) } else { (170.0, 110.0, 16.0) };
+    egui::ScrollArea::vertical().id_salt("ac_list").max_height(list_h).auto_shrink([false, true]).show(ui, |ui| {
         if !list.iter().any(|(a, _, _)| typed.is_empty() || a.to_lowercase().starts_with(&typed)) {
             // #3036: the filter matches nothing — say so instead of showing an empty box.
             ui.label(egui::RichText::new(tl!("(none)")).small().color(Tokens::get(ui.ctx()).text_dim));
@@ -476,7 +492,7 @@ fn autocorrect_tab(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) {
         egui::Grid::new("ac_list_grid").num_columns(2).spacing(vec2(8.0, 1.0)).striped(true).show(ui, |ui| {
             for (a, b, _) in list.iter().filter(|(a, _, _)| typed.is_empty() || a.to_lowercase().starts_with(&typed)).take(500) {
                 let selected = f.from == *a;
-                if ui.add_sized(vec2(110.0, 16.0), egui::Button::selectable(selected, a.as_str())).clicked() {
+                if ui.add_sized(vec2(row_w, row_h), egui::Button::selectable(selected, a.as_str())).clicked() {
                     picked = Some((a.clone(), b.clone()));
                 }
                 ui.label(b.as_str());
@@ -492,14 +508,14 @@ fn autocorrect_tab(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) {
     let same = list.iter().any(|(a, b, _)| *a == f.from && *b == f.to);
     ui.horizontal(|ui| {
         let label = if exists { tl!("Replace") } else { tl!("Add") };
-        if ui.add_enabled(!f.from.trim().is_empty() && !same, egui::Button::new(label)).clicked() {
+        if ui.add_enabled(!f.from.trim().is_empty() && !same, touch_button(ui, label)).clicked() {
             let p = json!({"add": {"from": f.from, "to": f.to}});
             if list_change(app, f, p) {
                 f.from.clear();
                 f.to.clear();
             }
         }
-        if ui.add_enabled(exists, egui::Button::new(tl!("Delete"))).clicked() {
+        if ui.add_enabled(exists, touch_button(ui, tl!("Delete"))).clicked() {
             let p = json!({"delete": f.from});
             if list_change(app, f, p) {
                 f.from.clear();
@@ -507,6 +523,22 @@ fn autocorrect_tab(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) {
             }
         }
     });
+}
+
+/// A text field: 48 pt tall on the phone (its touch target), as it is on the desktop.
+fn touch_field(ui: &mut Ui, edit: egui::TextEdit<'_>) -> egui::Response {
+    if crate::phone::active(ui.ctx()) {
+        let edit = crate::phone::touch_edit(ui, edit);
+        ui.add(edit)
+    } else {
+        ui.add(edit)
+    }
+}
+
+/// A button: 48 pt tall on the phone, as it is on the desktop.
+fn touch_button(ui: &Ui, label: impl Into<egui::WidgetText>) -> egui::Button<'static> {
+    let b = egui::Button::new(label);
+    if crate::phone::active(ui.ctx()) { b.min_size(vec2(0.0, crate::phone::TOUCH_H)) } else { b }
 }
 
 fn exceptions(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) {
@@ -527,15 +559,15 @@ fn exceptions(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) {
             f.exception = e;
         }
         ui.horizontal(|ui| {
-            crate::phone::compact_field(ui, |ui| ui.add(egui::TextEdit::singleline(&mut f.exception).desired_width(110.0)));
+            touch_field(ui, egui::TextEdit::singleline(&mut f.exception).desired_width(110.0));
             let known = list.contains(&f.exception.trim().to_lowercase());
-            if ui.add_enabled(!f.exception.trim().is_empty() && !known, egui::Button::new(tl!("Add"))).clicked() {
+            if ui.add_enabled(!f.exception.trim().is_empty() && !known, touch_button(ui, tl!("Add"))).clicked() {
                 let p = json!({"addException": f.exception});
                 if list_change(app, f, p) {
                     f.exception.clear();
                 }
             }
-            if ui.add_enabled(known, egui::Button::new(tl!("Delete"))).clicked() {
+            if ui.add_enabled(known, touch_button(ui, tl!("Delete"))).clicked() {
                 let p = json!({"deleteException": f.exception});
                 if list_change(app, f, p) {
                     f.exception.clear();
@@ -550,7 +582,7 @@ fn math_tab(ui: &mut Ui, f: &mut AutoCorrectForm) {
     ui.label(egui::RichText::new(tl!("In equations, typing a name after a backslash replaces it with its symbol.")).small().weak());
     ui.horizontal(|ui| {
         let label = ui.label(tl!("Replace:"));
-        crate::phone::compact_field(ui, |ui| ui.add(egui::TextEdit::singleline(&mut f.math_filter).desired_width(140.0))).labelled_by(label.id);
+        touch_field(ui, egui::TextEdit::singleline(&mut f.math_filter).desired_width(140.0)).labelled_by(label.id);
     });
     let filter = f.math_filter.trim().trim_start_matches('\\').to_string();
     egui::ScrollArea::vertical().id_salt("ac_math").max_height(240.0).auto_shrink([false, true]).show(ui, |ui| {

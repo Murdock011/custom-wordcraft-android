@@ -168,7 +168,10 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         }
         ui.end_row();
         let size_label = ui.label(tl!("Size:"));
-        crate::phone::compact_field(ui, |ui| ui.add(egui::TextEdit::singleline(size).margin(vec2(4.0, 2.0)))).labelled_by(size_label.id);
+        // A 48 pt field on the phone (the desktop field is unchanged).
+        let size_edit = egui::TextEdit::singleline(size).margin(vec2(4.0, 2.0));
+        let size_edit = if crate::phone::active(ui.ctx()) { crate::phone::touch_edit(ui, size_edit) } else { size_edit };
+        ui.add(size_edit).labelled_by(size_label.id);
         ui.end_row();
         ui.label(tl!("Font color:"));
         let theme = app.session.doc.settings.theme_colors.clone();
