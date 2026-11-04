@@ -75,6 +75,10 @@ impl WordApp {
             if self.formatting_bar_shown() {
                 phone::bottom_bar(self, ui);
             }
+            // Spelling & Grammar: the proofing sheet takes the keyboard, so the page gives it up first.
+            if self.spelling_review.is_some() {
+                crate::proofing_pane::give_up_keyboard(self, ctx);
+            }
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
                 canvas::show(self, ui);
             });
