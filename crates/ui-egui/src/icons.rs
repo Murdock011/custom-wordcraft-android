@@ -83,6 +83,7 @@ pub fn paint(p: &Painter, r: Rect, name: &str, c: Color32, accent: Color32) {
         || paint_draw_to_review(&pen, name)
         || paint_view_and_tables(&pen, name)
         || paint_file_and_tools(&pen, name)
+        || paint_picture_set(&pen, name)
     {
         return;
     }
@@ -1403,6 +1404,90 @@ fn paint_view_and_tables(pen: &Pen, name: &str) -> bool {
             pen.fill(&[(3.0, 6.0), (7.0, 3.5), (13.0, 3.5), (17.0, 6.0), (17.5, 14.0), (13.5, 16.5), (6.5, 16.5), (2.5, 14.0)], a);
             pen.fcircle(7.5, 10.5, 1.5, Color32::WHITE);
             pen.fcircle(12.5, 10.5, 1.5, Color32::WHITE);
+        }
+        _ => return false,
+    }
+    true
+}
+
+/// Picture styles, corrections and reset (the Picture sheet and ribbon). Original line art.
+fn paint_picture_set(pen: &Pen, name: &str) -> bool {
+    let (c, a) = (pen.c, pen.a);
+    let yellow = Color32::from_rgb(0xF2, 0xC8, 0x11);
+    match name {
+        // Simple Frame: a picture inside a thick accent border.
+        "picFrame" => {
+            pen.frect(1.5, 1.5, 18.5, 4.0, a);
+            pen.frect(1.5, 16.0, 18.5, 18.5, a);
+            pen.frect(1.5, 1.5, 4.0, 18.5, a);
+            pen.frect(16.0, 1.5, 18.5, 18.5, a);
+            pen.rect(5.5, 5.5, 14.5, 14.5, c);
+            pen.fill(&[(6.5, 13.5), (9.5, 9.0), (12.0, 11.5), (13.0, 10.0), (13.5, 13.5)], c);
+        }
+        // Shadow: a picture with its offset shadow showing as an L along the bottom and right.
+        "picShadow" => {
+            pen.frect(5.0, 14.5, 17.5, 17.0, a);
+            pen.frect(14.5, 5.0, 17.5, 17.0, a);
+            pen.rect(2.5, 2.5, 14.5, 14.5, c);
+            pen.line_c(&[(4.5, 11.5), (7.5, 8.0), (10.0, 10.5), (11.5, 9.0), (12.5, 11.5)], c);
+        }
+        // Rounded: a picture with rounded corners.
+        "picRounded" => {
+            let r = 3.0;
+            let mut pts = Vec::new();
+            for (cx, cy, start) in [(14.5, 6.5, -90.0f32), (14.5, 13.5, 0.0), (5.5, 13.5, 90.0), (5.5, 6.5, 180.0)] {
+                for i in 0..=4 {
+                    let t = (start + 90.0 * i as f32 / 4.0).to_radians();
+                    pts.push((cx + r * t.cos(), cy + r * t.sin()));
+                }
+            }
+            pen.closed(&pts, c);
+            pen.fill(&[(6.5, 13.0), (9.5, 9.5), (12.0, 12.0), (13.5, 10.5), (14.0, 13.0)], a);
+        }
+        // Brighter: a sun with rays and a plus.
+        "brighter" => {
+            let (cx, cy) = (8.5, 11.5);
+            pen.fcircle(cx, cy, 3.2, yellow);
+            pen.circle(cx, cy, 3.2, c);
+            for k in 0..8 {
+                let t = (k as f32 * 45.0).to_radians();
+                pen.line_c(&[(cx + 5.2 * t.cos(), cy + 5.2 * t.sin()), (cx + 7.0 * t.cos(), cy + 7.0 * t.sin())], c);
+            }
+            pen.line_c(&[(14.0, 4.0), (18.0, 4.0)], a);
+            pen.line_c(&[(16.0, 2.0), (16.0, 6.0)], a);
+        }
+        // Darker: a dark disc with a minus.
+        "darker" => {
+            pen.fcircle(9.0, 11.0, 5.0, c);
+            pen.line_c(&[(14.0, 4.0), (18.0, 4.0)], a);
+        }
+        // Higher Contrast: a circle, half of it filled.
+        "contrast" => {
+            pen.circle(10.0, 10.0, 7.0, c);
+            let half: Vec<(f32, f32)> = (0..=12)
+                .map(|i| {
+                    let t = (-90.0 + 180.0 * i as f32 / 12.0).to_radians();
+                    (10.0 + 7.0 * t.cos(), 10.0 + 7.0 * t.sin())
+                })
+                .collect();
+            pen.fill(&half, c);
+        }
+        // Reset Picture: a small picture with a circular arrow around it.
+        "resetPicture" => {
+            pen.rect(1.5, 1.5, 10.0, 9.5, c);
+            pen.fill(&[(3.0, 8.0), (5.5, 5.0), (7.5, 7.0), (8.5, 6.0), (9.5, 8.0)], a);
+            let (cx, cy, r) = (13.5, 13.5, 4.0);
+            let arc: Vec<(f32, f32)> = (0..=16)
+                .map(|i| {
+                    let t = (-10.0 + 270.0 * i as f32 / 16.0).to_radians();
+                    (cx + r * t.cos(), cy + r * t.sin())
+                })
+                .collect();
+            pen.line_c(&arc, a);
+            let end = 260.0f32.to_radians();
+            let (e, t, n) = ((cx + r * end.cos(), cy + r * end.sin()), (-end.sin(), end.cos()), (end.cos(), end.sin()));
+            let tip = (e.0 + t.0 * 2.2, e.1 + t.1 * 2.2);
+            pen.fill(&[tip, (e.0 + n.0 * 2.0, e.1 + n.1 * 2.0), (e.0 - n.0 * 2.0, e.1 - n.1 * 2.0)], a);
         }
         _ => return false,
     }

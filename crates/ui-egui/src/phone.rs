@@ -1597,6 +1597,13 @@ pub(crate) fn row_icon(id: &str) -> &'static str {
         "arrange.flipV" => "flipV",
         "text.delete" => "trash",
         id if id.starts_with("picture.effects.") => "effects",
+        "picture.style.simpleFrame" => "picFrame",
+        "picture.style.shadow" => "picShadow",
+        "picture.style.rounded" => "picRounded",
+        "picture.corrections.brighter" => "brighter",
+        "picture.corrections.darker" => "darker",
+        "picture.corrections.contrast" => "contrast",
+        "picture.reset" => "resetPicture",
         id if id.starts_with("picture.") || id.starts_with("arrange.") => "picture",
         "layout.margins" => "margins",
         "layout.orientation" => "orientation",
@@ -1884,6 +1891,16 @@ mod tests {
         for (label, id) in rows(PICTURE_TAB) {
             let ok = id.starts_with("picture.") || id.starts_with("arrange.") || matches!(*id, "ui.crop" | "text.delete");
             assert!(ok, "{label} runs {id}");
+        }
+    }
+
+    /// Style, correction and reset rows get their own icons, not the generic picture.
+    #[test]
+    fn phone_picture_rows_have_their_own_icons() {
+        for (label, id) in rows(PICTURE_TAB) {
+            if id.starts_with("picture.style.") || id.starts_with("picture.corrections.") || *id == "picture.reset" {
+                assert_ne!(row_icon(id), "picture", "{label} runs {id}");
+            }
         }
     }
 
