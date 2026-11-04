@@ -221,6 +221,19 @@ pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nati
     ime::wake();
 }
 
+/// The display density in dpi, at start and on each configuration change. The app draws at this
+/// scale (`Shell::raw_input_hook`), so a change in Display size, DeX or an external display shows.
+#[allow(unsafe_code)]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeSetDensity<'local>(
+    _env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    dpi: jint,
+) {
+    ime::DENSITY_DPI.store(u32::try_from(dpi).unwrap_or(0), Ordering::Relaxed);
+    ime::wake();
+}
+
 /// Padding that touch positions must be shifted by.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]

@@ -419,6 +419,7 @@ class MainActivity : GameActivity() {
             null
         }
         reportNight(resources.configuration)
+        nativeSetDensity(resources.configuration.densityDpi)
         handler.post(keyboardPoll)
         // A restored instance (process death) must not reopen the document it was launched with.
         if (savedInstanceState == null) handleIntent(intent)
@@ -498,6 +499,8 @@ class MainActivity : GameActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         reportNight(newConfig)
+        // Display size, DeX or an external display changes the density without recreating the activity.
+        nativeSetDensity(newConfig.densityDpi)
         // Rotation makes Android show the keyboard again for the focused canvas, even after Back hid it.
         // If the keyboard was hidden before the rotation, keep it hidden for a short while (insets listener).
         if (!imeShownNow) {
@@ -596,6 +599,7 @@ class MainActivity : GameActivity() {
 
     /** Whether the system is in night mode. */
     private external fun nativeSetNight(night: Boolean)
+    private external fun nativeSetDensity(dpi: Int)
 
     /** The system clipboard's text. */
     private external fun nativeClip(text: String)

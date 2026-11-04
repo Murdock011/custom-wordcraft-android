@@ -10,7 +10,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Msg {
@@ -44,6 +44,23 @@ pub static CANVAS_EDITING: AtomicBool = AtomicBool::new(false);
 pub static QUIT: AtomicBool = AtomicBool::new(false);
 /// Whether the system is in night mode (set by Kotlin; winit reports no theme on Android).
 pub static NIGHT: AtomicBool = AtomicBool::new(false);
+
+/// The display density in dpi, from the activity's `Configuration.densityDpi` (set by Kotlin at
+/// start and on each configuration change; 0 until then).
+pub static DENSITY_DPI: AtomicU32 = AtomicU32::new(0);
+
+/// Pixels per point for a density in dpi, where 160 is 1x: 420 gives 2.625 and 280 gives 1.75.
+pub fn pixels_per_point_for_dpi(dpi: u32) -> f32 {
+    dpi as f32 / 160.0
+}
+
+/// The live display scale, or `None` before Kotlin has reported a density.
+pub fn live_pixels_per_point() -> Option<f32> {
+    match DENSITY_DPI.load(Ordering::Relaxed) {
+        0 => None,
+        dpi => Some(pixels_per_point_for_dpi(dpi)),
+    }
+}
 
 /// Set on the first frame so `push` can wake the event loop, which sleeps until an event arrives.
 pub static WAKE: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
@@ -283,6 +300,13 @@ pub fn encode(ack: u64, c: &Context) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn density_maps_to_pixels_per_point() {
+        assert!((pixels_per_point_for_dpi(420) - 2.625).abs() < 1e-6);
+        assert!((pixels_per_point_for_dpi(280) - 1.75).abs() < 1e-6);
+        assert!((pixels_per_point_for_dpi(160) - 1.0).abs() < 1e-6);
+    }
 
     #[test]
     fn a_field_composition_is_replaced_not_appended() {
