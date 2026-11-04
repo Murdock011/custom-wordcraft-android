@@ -623,6 +623,9 @@ fn language(app: &mut WordApp, ui: &mut Ui) {
     if crate::phone::active(ui.ctx()) {
         let tag = app.session.doc.styles.default_chr.lang.clone();
         note(ui, &crate::ribbon::language_name(tag.as_deref()));
+        // The packs too: a phone downloads them as the desktop does, in full-width rows.
+        ui.add_space(8.0);
+        crate::language_packs::options_section(app, ui);
         return;
     }
     let lang = crate::ribbon::caret_language(app);

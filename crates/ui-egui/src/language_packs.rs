@@ -258,17 +258,27 @@ pub(crate) fn bar(app: &mut WordApp, ui: &mut Ui) {
         return;
     };
     let t = Tokens::get(ui.ctx());
+    // On the phone the bar is one 48 pt touch row (its Install and Not now buttons too).
+    let phone = crate::phone::active(ui.ctx());
     egui::Panel::top("language_pack_bar")
-        .exact_size(36.0)
+        .exact_size(if phone { crate::phone::TOUCH_H } else { 36.0 })
         .show_separator_line(false)
         .frame(egui::Frame::NONE.fill(t.panel).inner_margin(egui::Margin::symmetric(12, 0)))
         .show(ui, |ui| {
             let bottom = ui.max_rect().bottom();
             let full = ui.max_rect();
             ui.painter().hline(full.x_range(), bottom - 0.5, egui::Stroke::new(1.0, t.border));
+            if phone {
+                crate::phone::touch_style(ui);
+            }
             ui.horizontal_centered(|ui| {
                 let language = shown(&language_of(&pack.locale, &pack.name), MAX_BAR_NAME);
-                ui.label(RichText::new(crate::i18n::fmt(tl!("{language} proofing isn't installed."), &[("language", &language)])).color(t.text));
+                let line = crate::i18n::fmt(tl!("{language} proofing isn't installed."), &[("language", &language)]);
+                if phone {
+                    ui.add(egui::Label::new(RichText::new(line).color(t.text)).truncate());
+                } else {
+                    ui.label(RichText::new(line).color(t.text));
+                }
                 match progress(&pack.locale) {
                     Some((done, total)) => {
                         let pct = (done.min(total) * 100 / total).to_string();
@@ -285,7 +295,9 @@ pub(crate) fn bar(app: &mut WordApp, ui: &mut Ui) {
                     ui.add(egui::Label::new(RichText::new(e).color(t.red)).truncate());
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if crate::widgets::icon_button(ui, "close", tl!("Not now")).clicked() {
+                    let close =
+                        if phone { ui.button(tl!("Not now")).clicked() } else { crate::widgets::icon_button(ui, "close", tl!("Not now")).clicked() };
+                    if close {
                         app.packs_rt.dismissed.insert((document, pack.locale.clone()));
                     }
                 });
@@ -307,6 +319,55 @@ fn licence_hover(pack: &Pack) -> String {
         lines.push(crate::i18n::fmt(tl!("Language packs come from a test source: {source}"), &[("source", &shown(&source, 300))]));
     }
     lines.join("\n")
+}
+
+/// The phone's pack list: one full-width row per pack, its language, and its size or status under
+/// the name, with Install, Remove or progress and Cancel on the right. The page sets the 48 pt touch
+/// sizes. Returns the pack to install and the locale to remove.
+fn phone_rows(app: &mut WordApp, ui: &mut Ui, rows: &[(Pack, bool)]) -> (Option<Pack>, Option<String>) {
+    let t = Tokens::get(ui.ctx());
+    let mut install = None;
+    let mut removal = None;
+    for (pack, is_installed) in rows {
+        let progress = progress(&pack.locale);
+        let text_width = (ui.available_width() - 130.0).max(120.0);
+        ui.horizontal(|ui| {
+            ui.allocate_ui_with_layout(vec2(text_width, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                ui.set_width(text_width);
+                ui.add(egui::Label::new(RichText::new(shown(&language_of(&pack.locale, &pack.name), MAX_BAR_NAME)).font(semibold(15.0))).wrap());
+                let status = if *is_installed {
+                    tl!("Installed").to_string()
+                } else if pack.size > 0 {
+                    size_text(pack.size)
+                } else {
+                    String::new()
+                };
+                ui.label(RichText::new(status).small().weak());
+                if let Some((done, total)) = progress {
+                    ui.add(egui::ProgressBar::new(done.min(total) as f32 / total as f32).desired_width(text_width).show_percentage());
+                }
+                if let Some(e) = error_of(app, &pack.locale) {
+                    ui.add(egui::Label::new(RichText::new(e).small().color(t.red)).wrap());
+                }
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if progress.is_some() {
+                    if ui.button(tl!("Cancel")).clicked() {
+                        packs::cancel(&pack.locale);
+                    }
+                } else if *is_installed {
+                    if ui.add_enabled(!busy(), egui::Button::new(tl!("Remove"))).clicked() {
+                        removal = Some(pack.locale.clone());
+                    }
+                } else if ui.button(tl!("Install")).clicked() {
+                    install = Some(pack.clone());
+                }
+            });
+        });
+        ui.add_space(6.0);
+        ui.separator();
+    }
+    (install, removal)
 }
 
 /// File › Options › Language › Language packs: every available and installed pack with its
@@ -379,6 +440,16 @@ pub(crate) fn options_section(app: &mut WordApp, ui: &mut Ui) {
         return;
     }
     ui.add_space(4.0);
+    if crate::phone::active(ui.ctx()) {
+        let (install, removal) = phone_rows(app, ui, &rows);
+        if let Some(p) = install {
+            start_install(app, &ui.ctx().clone(), &p);
+        }
+        if let Some(l) = removal {
+            remove(app, &l);
+        }
+        return;
+    }
     let mut install = None;
     let mut removal = None;
     egui::ScrollArea::vertical().id_salt("options_language_packs").max_height(260.0).show(ui, |ui| {

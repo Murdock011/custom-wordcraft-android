@@ -708,21 +708,36 @@ fn phone_menu_rows_have_real_icons() {
     }
 }
 
-/// Phone Spelling & Grammar draws no task pane, so it opens the suggestions menu at the caret
-/// instead (as before v0.15); the desktop pane stays with upstream.
+/// Phone Spelling & Grammar opens the proofing state and draws it as a bottom sheet over the page
+/// (the desktop's task pane, in touch sizes). A tapped suggestion fills Change to, Change applies it
+/// and moves to the next issue, and the sheet's Close clears the state. The caret menu stays closed.
 #[test]
-fn phone_spelling_opens_the_suggestions_menu_not_the_pane() {
-    let (_ctx, mut frame) = phone_frames(412.0);
+fn phone_spelling_opens_the_proofing_sheet() {
     let mut a = app();
-    frame(&mut a, Vec::new());
-    assert!(a.phone, "a 412 pt wide screen is a phone");
     a.run("text.insert", json!({"text": "Thsi is wrng"})).unwrap();
     a.run("review.spelling", json!({})).unwrap();
-    assert!(a.spelling_review.is_none(), "the phone opens no task pane");
-    for _ in 0..3 {
-        frame(&mut a, Vec::new());
-    }
-    assert!(a.canvas.context_menu_open, "the suggestions menu is open");
+    assert!(a.spelling_review.is_some(), "the proofing state is open");
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(412.0, 915.0)).build_ui_state(
+        |ui, app: &mut WordApp| {
+            let ctx = ui.ctx().clone();
+            app.logic(&ctx);
+            app.ui(ui);
+        },
+        a,
+    );
+    h.run_steps(4);
+    assert!(h.state().phone, "a 412 pt wide screen is a phone");
+    assert!(!h.state().canvas.context_menu_open, "no caret menu: the sheet shows the issue");
+    let first = h.state().spelling_review.as_ref().expect("pane").issue["suggestions"][0].as_str().unwrap().to_string();
+    h.get_by_label(&first).click();
+    h.run_steps(2);
+    h.get_by_label("Change").click();
+    h.run_steps(4);
+    assert_eq!(h.state().spelling_review.as_ref().expect("still open").issue["text"], "wrng", "Change moved to the next issue");
+    assert!(h.state().session.doc.plain_text(wordcraft_doc::StoryRef::Body).starts_with(&first), "Change applied the suggestion");
+    h.get_by_label("Close").click();
+    h.run_steps(2);
+    assert!(h.state().spelling_review.is_none(), "Close clears the state");
 }
 
 /// The phone's Options › Proofing has no Dictionaries section: a phone has no folder of Hunspell

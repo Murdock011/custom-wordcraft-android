@@ -10,7 +10,7 @@ use crate::theme::{Tokens, regular, semibold};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct SpellingForm {
-    issue: Value,
+    pub(crate) issue: Value,
     replacement: String,
     message: String,
     context_before: String,
@@ -97,8 +97,118 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     app.spelling_review = Some(form);
 }
 
+/// The phone's proofing sheet (drawn over the page by the phone frame): the issue, its suggestions
+/// as 48 pt rows (a tap picks one for the "Change to" field), and the actions as 48 pt buttons.
+/// Closing it clears the pane state.
+pub fn phone_sheet(app: &mut WordApp, ctx: &egui::Context) {
+    let Some(mut form) = app.spelling_review.take() else { return };
+    let (close, _) = crate::phone::dialog_sheet(ctx, egui::Id::unique("phone_proofing_sheet"), "Spelling & Grammar", |ui| {
+        phone_body(app, ui, &mut form);
+        false
+    });
+    if !close {
+        app.spelling_review = Some(form);
+    }
+}
+
+/// A full-width 48 pt button; `primary` is the accent button.
+fn phone_button(ui: &mut Ui, text: &str, primary: bool) -> bool {
+    let label = tl!(text).to_string();
+    let button = if primary { crate::widgets::primary_button(ui, label) } else { egui::Button::new(label) };
+    ui.add_sized(vec2(ui.available_width(), crate::phone::TOUCH_H), button).clicked()
+}
+
+fn phone_body(app: &mut WordApp, ui: &mut Ui, form: &mut SpellingForm) {
+    let t = Tokens::get(ui.ctx());
+    if form.done() {
+        ui.label(tl!("The spelling and grammar check is complete."));
+        ui.add_space(8.0);
+        if phone_button(ui, "Check Again", false) {
+            form.next(app, true);
+        }
+        return;
+    }
+    let spelling = form.issue.get("kind").and_then(Value::as_str) == Some("spelling");
+    ui.label(egui::RichText::new(tl!(if spelling { "Spelling" } else { "Grammar" })).font(semibold(16.0)));
+    let message = if spelling { tl!("Not in Dictionary") } else { tl!(form.issue.get("message").and_then(Value::as_str).unwrap_or("")) };
+    ui.label(egui::RichText::new(message).font(regular(13.0)).color(t.text_dim));
+    ui.add_space(8.0);
+    egui::Frame::NONE.fill(t.input).stroke(Stroke::new(1.0, t.input_border)).corner_radius(2.0).inner_margin(8).show(ui, |ui| {
+        ui.add(egui::Label::new(context_job(form, &t, spelling)).wrap());
+    });
+    ui.add_space(12.0);
+    ui.label(egui::RichText::new(tl!("Suggestions")).font(regular(13.0)).color(t.text_dim));
+    let suggestions: Vec<String> =
+        form.issue.get("suggestions").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
+    if suggestions.is_empty() {
+        ui.label(egui::RichText::new(tl!("(no suggestions)")).italics());
+    }
+    for suggestion in &suggestions {
+        let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), crate::phone::TOUCH_H), Sense::click());
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, suggestion));
+        let picked = form.replacement == *suggestion;
+        let fill = if picked {
+            t.input
+        } else if response.hovered() {
+            t.hover
+        } else {
+            egui::Color32::TRANSPARENT
+        };
+        ui.painter().rect_filled(rect, 2.0, fill);
+        ui.painter().text(rect.left_center() + vec2(12.0, 0.0), egui::Align2::LEFT_CENTER, suggestion, regular(16.0), t.text);
+        if response.clicked() {
+            form.replacement.clone_from(suggestion);
+        }
+    }
+    ui.add_space(8.0);
+    let label = ui.label(tl!("Change to:"));
+    ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut form.replacement).char_limit(1024))).labelled_by(label.id);
+    ui.add_space(8.0);
+    if phone_button(ui, "Change", true) {
+        form.act(app, Some("review.applySuggestion"));
+    }
+    if phone_button(ui, "Read Aloud", false) {
+        if form.current(app) {
+            if let Err(e) = app.run("review.readAloud", json!({})) {
+                form.message = e;
+            }
+        } else {
+            form.message = tl!("The document or selection changed. Check again to continue.").into();
+        }
+    }
+    if phone_button(ui, "Ignore", false) {
+        form.act(app, None);
+    }
+    if spelling && phone_button(ui, "Ignore All", false) {
+        form.act(app, Some("review.ignoreAll"));
+    }
+    if spelling && phone_button(ui, "Add to Dictionary", false) {
+        form.act(app, Some("review.addToDictionary"));
+    }
+    if phone_button(ui, "Next", false) {
+        form.next(app, false);
+    }
+    if !form.message.is_empty() {
+        ui.colored_label(ui.visuals().error_fg_color, &form.message);
+        if phone_button(ui, "Check Again", false) {
+            form.next(app, true);
+        }
+    }
+}
+
 fn action_link(ui: &mut Ui, text: &str) -> bool {
     ui.add(egui::Button::new(egui::RichText::new(tl!(text)).color(Tokens::get(ui.ctx()).text).underline()).frame(false)).clicked()
+}
+
+/// The sentence around the issue, with the issue underlined (red for spelling, blue for grammar).
+fn context_job(form: &SpellingForm, t: &Tokens, spelling: bool) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    let format = egui::TextFormat { font_id: regular(12.0), color: t.text, ..Default::default() };
+    job.append(&form.context_before, 0.0, format.clone());
+    let marked = egui::TextFormat { underline: Stroke::new(1.0, if spelling { t.red } else { t.blue }), ..format.clone() };
+    job.append(form.issue.get("text").and_then(Value::as_str).unwrap_or(""), 0.0, marked);
+    job.append(&form.context_after, 0.0, format);
+    job
 }
 
 fn context(ui: &mut Ui, app: &mut WordApp, form: &mut SpellingForm, spelling: bool) {
@@ -107,12 +217,7 @@ fn context(ui: &mut Ui, app: &mut WordApp, form: &mut SpellingForm, spelling: bo
     egui::Frame::NONE.fill(t.input).stroke(Stroke::new(1.0, t.input_border)).corner_radius(2.0).inner_margin(8).show(ui, |ui| {
         ui.set_min_width((width - 18.0).max(0.0));
         ui.horizontal(|ui| {
-            let mut job = egui::text::LayoutJob::default();
-            let format = egui::TextFormat { font_id: regular(12.0), color: t.text, ..Default::default() };
-            job.append(&form.context_before, 0.0, format.clone());
-            let marked = egui::TextFormat { underline: Stroke::new(1.0, if spelling { t.red } else { t.blue }), ..format.clone() };
-            job.append(form.issue.get("text").and_then(Value::as_str).unwrap_or(""), 0.0, marked);
-            job.append(&form.context_after, 0.0, format);
+            let job = context_job(form, &t, spelling);
             let text_width = (ui.available_width() - 36.0).max(20.0);
             ui.allocate_ui_with_layout(vec2(text_width, 30.0), egui::Layout::top_down(Align::Min), |ui| {
                 ui.set_min_width(text_width);
