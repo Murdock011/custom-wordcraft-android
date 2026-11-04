@@ -23,6 +23,7 @@ level = "warn"
 [target.'cfg(target_os = "android")'.dependencies]
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "android-game-activity"] }
 egui = { workspace = true }
+egui-winit = { git = "https://github.com/storytold/egui.git", rev = "6d518fc799681571963842f95b55a6b68431b15a" }
 wordcraft-engine = { workspace = true }
 wordcraft-ui-egui = { workspace = true }
 android_logger = "0.15"

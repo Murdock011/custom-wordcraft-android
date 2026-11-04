@@ -221,8 +221,9 @@ pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nati
     ime::wake();
 }
 
-/// The display density in dpi, at start and on each configuration change. The app draws at this
-/// scale (`Shell::raw_input_hook`), so a change in Display size, DeX or an external display shows.
+/// The display density in dpi, at start and on each configuration change. It becomes the native
+/// scale egui draws with (egui-winit's override), so a change in Display size, DeX or an external
+/// display takes effect; 0 or a bad value restores winit's own scale.
 #[allow(unsafe_code)]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nativeSetDensity<'local>(
@@ -230,7 +231,8 @@ pub extern "system" fn Java_ai_storyteller_wordcraft_nativeapp_MainActivity_nati
     _this: JObject<'local>,
     dpi: jint,
 ) {
-    ime::DENSITY_DPI.store(u32::try_from(dpi).unwrap_or(0), Ordering::Relaxed);
+    let ppp = u32::try_from(dpi).ok().filter(|d| *d > 0).map(ime::pixels_per_point_for_dpi);
+    egui_winit::set_native_pixels_per_point_override(ppp);
     ime::wake();
 }
 

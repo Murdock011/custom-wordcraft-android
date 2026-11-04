@@ -84,11 +84,41 @@ pub fn screen_size_in_pixels(window: &Window) -> egui::Vec2 {
     egui::vec2(size.width as f32, size.height as f32)
 }
 
+/// The native pixels per point the app set with [`set_native_pixels_per_point_override`], as f32
+/// bits; 0 when none is set, so the window's own scale factor is used (every platform by default).
+static NATIVE_PPP_OVERRIDE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Replaces winit's scale factor as the native pixels per point for every window (Android only
+/// sets it). Android's winit can keep the startup density after a Display size, DeX or
+/// external-display change, so the app reports the activity's density here instead. `None`, or a
+/// value that is not finite and positive, restores the window's scale factor.
+pub fn set_native_pixels_per_point_override(ppp: Option<f32>) {
+    let bits = match ppp {
+        Some(p) if p.is_finite() && p > 0.0 => p.to_bits(),
+        _ => 0,
+    };
+    NATIVE_PPP_OVERRIDE.store(bits, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The native pixels per point for a window: the override when one is set, else its scale factor.
+pub fn native_pixels_per_point(window: &Window) -> f32 {
+    let bits = NATIVE_PPP_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed);
+    native_pixels_per_point_for(bits, window.scale_factor())
+}
+
+/// The selection behind [`native_pixels_per_point`]: `override_bits` (0 for none) wins over the
+/// window's `scale_factor`.
+fn native_pixels_per_point_for(override_bits: u32, scale_factor: f64) -> f32 {
+    match override_bits {
+        0 => scale_factor as f32,
+        bits => f32::from_bits(bits),
+    }
+}
+
 /// Calculate the `pixels_per_point` for a given window, given the current egui zoom factor
 pub fn pixels_per_point(egui_ctx: &egui::Context, window: &Window) -> f32 {
-    let native_pixels_per_point = window.scale_factor() as f32;
     let egui_zoom_factor = egui_ctx.zoom_factor();
-    egui_zoom_factor * native_pixels_per_point
+    egui_zoom_factor * native_pixels_per_point(window)
 }
 
 // ----------------------------------------------------------------------------
@@ -2093,7 +2123,7 @@ impl State {
             .viewports
             .entry(self.viewport_id)
             .or_default()
-            .native_pixels_per_point = Some(window.scale_factor() as f32);
+            .native_pixels_per_point = Some(native_pixels_per_point(window));
 
         self.egui_input.take()
     }
@@ -3719,7 +3749,7 @@ pub fn update_viewport_info(
     };
 
     viewport_info.title = Some(window.title());
-    viewport_info.native_pixels_per_point = Some(window.scale_factor() as f32);
+    viewport_info.native_pixels_per_point = Some(native_pixels_per_point(window));
 
     viewport_info.monitor_size = monitor_size;
     viewport_info.inner_rect = inner_rect;
@@ -5145,6 +5175,12 @@ pub fn short_window_event_description(event: &winit::event::WindowEvent) -> &'st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_scale_override_wins_over_the_window_scale_factor() {
+        assert_eq!(native_pixels_per_point_for(0, 2.625), 2.625);
+        assert_eq!(native_pixels_per_point_for(1.75f32.to_bits(), 2.625), 1.75);
+    }
 
     #[test]
     fn destroyed_window_resets_ime_cursor_purpose_and_allow_on_every_platform() {

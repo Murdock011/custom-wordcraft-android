@@ -368,12 +368,6 @@ impl eframe::App for Shell {
         }
         raw.events.append(&mut self.pending);
         raw.system_theme = Some(if ime::NIGHT.load(Ordering::Relaxed) { egui::Theme::Dark } else { egui::Theme::Light });
-        // The scale from the activity's density, which the system changed: winit's reading (the
-        // AConfiguration snapshot) is what egui-winit writes each frame, and it kept the startup
-        // value on a density change. Once Kotlin has reported one, that value wins.
-        if let Some(ppp) = ime::live_pixels_per_point() {
-            raw.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(ppp);
-        }
         self.app.raw_input_hook(ctx, raw);
     }
 

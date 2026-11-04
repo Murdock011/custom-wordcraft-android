@@ -10,7 +10,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::AtomicBool;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Msg {
@@ -45,21 +45,9 @@ pub static QUIT: AtomicBool = AtomicBool::new(false);
 /// Whether the system is in night mode (set by Kotlin; winit reports no theme on Android).
 pub static NIGHT: AtomicBool = AtomicBool::new(false);
 
-/// The display density in dpi, from the activity's `Configuration.densityDpi` (set by Kotlin at
-/// start and on each configuration change; 0 until then).
-pub static DENSITY_DPI: AtomicU32 = AtomicU32::new(0);
-
 /// Pixels per point for a density in dpi, where 160 is 1x: 420 gives 2.625 and 280 gives 1.75.
 pub fn pixels_per_point_for_dpi(dpi: u32) -> f32 {
     dpi as f32 / 160.0
-}
-
-/// The live display scale, or `None` before Kotlin has reported a density.
-pub fn live_pixels_per_point() -> Option<f32> {
-    match DENSITY_DPI.load(Ordering::Relaxed) {
-        0 => None,
-        dpi => Some(pixels_per_point_for_dpi(dpi)),
-    }
 }
 
 /// Set on the first frame so `push` can wake the event loop, which sleeps until an event arrives.
