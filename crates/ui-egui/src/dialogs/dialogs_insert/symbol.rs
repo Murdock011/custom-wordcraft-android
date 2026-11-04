@@ -131,6 +131,9 @@ pub struct SymbolForm {
     /// Scroll the grid to this row on the next frame.
     #[serde(skip)]
     scroll_to: Option<usize>,
+    /// Columns in the character grid this frame: GRID_COLS on desktop, as many as fit on the phone.
+    #[serde(skip)]
+    cols: usize,
 }
 
 /// Grid geometry.
@@ -151,8 +154,18 @@ impl SymbolForm {
         let recent = app.ui.recent_symbols.first().cloned();
         let font = recent.as_ref().map(|r| r.font.clone()).unwrap_or_default();
         let selected = recent.and_then(|r| r.ch.chars().next());
-        let mut f =
-            SymbolForm { tab, font, selected, code: String::new(), special: 0, text_font, chars: Vec::new(), chars_of: None, scroll_to: None };
+        let mut f = SymbolForm {
+            tab,
+            font,
+            selected,
+            code: String::new(),
+            special: 0,
+            text_font,
+            chars: Vec::new(),
+            chars_of: None,
+            scroll_to: None,
+            cols: GRID_COLS,
+        };
         f.sync_code();
         f
     }
@@ -181,7 +194,7 @@ impl SymbolForm {
     }
 
     fn row_of(&self, c: char) -> Option<usize> {
-        self.chars.binary_search(&c).ok().map(|i| i / GRID_COLS)
+        self.chars.binary_search(&c).ok().map(|i| i / self.cols.max(1))
     }
 
     fn sync_code(&mut self) {
@@ -207,7 +220,7 @@ impl SymbolForm {
         if let Some(c) = self.chars.get(i).filter(|c| (**c as u32) <= *b) {
             self.selected = Some(*c);
             self.sync_code();
-            self.scroll_to = Some(i / GRID_COLS);
+            self.scroll_to = Some(i / self.cols.max(1));
         }
     }
 
@@ -268,7 +281,12 @@ fn symbol_cell(app: &mut WordApp, ui: &mut Ui, font: &str, c: char, selected: bo
 
 pub(super) fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> bool {
     let t = Tokens::get(ui.ctx());
-    ui.set_width(GRID_COLS as f32 * CELL + 24.0);
+    let phone = crate::phone::active(ui.ctx());
+    // On the phone the grid takes the width there is (whole cells only); the desktop keeps its 16 columns.
+    f.cols = if phone { ((ui.available_width() / CELL).floor() as usize).clamp(1, GRID_COLS) } else { GRID_COLS };
+    if !phone {
+        ui.set_width(GRID_COLS as f32 * CELL + 24.0);
+    }
     ui.horizontal(|ui| {
         for (i, l) in ["Symbols", "Special Characters"].into_iter().enumerate() {
             if ui.selectable_label(f.tab == i as u8, tl!(l)).clicked() {
@@ -284,7 +302,7 @@ pub(super) fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> b
         }
     } else {
         f.load();
-        ui.horizontal(|ui| {
+        let font_row = |ui: &mut Ui| {
             ui.label(tl!("Font:"));
             let normal = tl!("(normal text)").to_string();
             let mut items = vec![normal.clone()];
@@ -324,9 +342,16 @@ pub(super) fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> b
             if let Some(s) = chosen {
                 f.jump_to(s);
             }
-        });
+        };
+        // The phone wraps Subset onto its own line when Font and Subset are too wide for 412 pt.
+        if phone {
+            ui.horizontal_wrapped(font_row);
+        } else {
+            ui.horizontal(font_row);
+        }
         ui.add_space(4.0);
-        let rows = f.chars.len().div_ceil(GRID_COLS);
+        let cols = f.cols;
+        let rows = f.chars.len().div_ceil(cols);
         let mut area = egui::ScrollArea::vertical().id_salt("symbol_grid").max_height(CELL * GRID_ROWS as f32).auto_shrink([false, false]);
         if let Some(row) = f.scroll_to.take() {
             // Keep the row in view: it lands on the grid's second row when there is room.
@@ -340,7 +365,7 @@ pub(super) fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> b
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             for row in range {
                 ui.horizontal(|ui| {
-                    for c in chars.iter().skip(row * GRID_COLS).take(GRID_COLS) {
+                    for c in chars.iter().skip(row * cols).take(cols) {
                         let resp = symbol_cell(app, ui, &font, *c, f.selected == Some(*c), &t);
                         if resp.clicked() {
                             picked = Some(*c);
@@ -365,7 +390,7 @@ pub(super) fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> b
         let recent = app.ui.recent_symbols.clone();
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-            for r in recent.iter().take(GRID_COLS) {
+            for r in recent.iter().take(cols) {
                 let Some(c) = r.ch.chars().next() else { continue };
                 let rfont = if r.font.is_empty() { f.text_font.clone() } else { r.font.clone() };
                 let resp = symbol_cell(app, ui, &rfont, c, false, &t);
@@ -385,20 +410,35 @@ pub(super) fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> b
             }
         });
         ui.add_space(6.0);
-        ui.horizontal(|ui| {
+        let code_row = |ui: &mut Ui, f: &mut SymbolForm| {
             let name = f.selected.map(|c| format!("U+{:04X}", c as u32)).unwrap_or_default();
             ui.label(egui::RichText::new(name).font(semibold(12.0)));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(tl!("from Unicode (hex)"));
+            let edit = |ui: &mut Ui, f: &mut SymbolForm| {
                 let resp = ui
                     .add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut f.code)).desired_width(70.0).font(egui::TextStyle::Monospace));
                 if resp.changed() {
                     let code = f.code.clone();
                     f.select_code(&code);
                 }
+            };
+            if phone {
+                // Left to right and wrapping on the phone, so "from Unicode (hex)" is not cut off.
                 ui.label(tl!("Character code:"));
-            });
-        });
+                edit(ui, f);
+                ui.label(tl!("from Unicode (hex)"));
+            } else {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(tl!("from Unicode (hex)"));
+                    edit(ui, f);
+                    ui.label(tl!("Character code:"));
+                });
+            }
+        };
+        if phone {
+            ui.horizontal_wrapped(|ui| code_row(ui, f));
+        } else {
+            ui.horizontal(|ui| code_row(ui, f));
+        }
         if double && let Some(p) = f.params() {
             insert = Some((p, f.selected.map(String::from).unwrap_or_default(), f.font.clone()));
         }
@@ -428,7 +468,13 @@ pub(super) fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> b
 fn special_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm, insert: &mut Option<(Value, String, String)>, t: &Tokens) -> bool {
     let mut double = false;
     egui::ScrollArea::vertical().id_salt("special_chars").max_height(CELL * GRID_ROWS as f32 + 60.0).auto_shrink([false, false]).show(ui, |ui| {
-        egui::Grid::new("special_grid").num_columns(3).striped(true).spacing(vec2(14.0, 4.0)).show(ui, |ui| {
+        // The phone's narrower gutters and button padding keep the Shortcut key column inside 412 pt.
+        let phone = crate::phone::active(ui.ctx());
+        if phone {
+            ui.style_mut().spacing.button_padding.x = 6.0;
+        }
+        let gap = if phone { 8.0 } else { 14.0 };
+        egui::Grid::new("special_grid").num_columns(3).striped(true).spacing(vec2(gap, 4.0)).show(ui, |ui| {
             ui.label(egui::RichText::new(tl!("Character")).font(semibold(12.0)));
             ui.label("");
             ui.label(egui::RichText::new(tl!("Shortcut key:")).font(semibold(12.0)));

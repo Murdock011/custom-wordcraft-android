@@ -263,11 +263,17 @@ fn merge_field_name(code: &str) -> String {
 
 pub(super) fn field_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FieldForm) -> bool {
     let t = Tokens::get(ui.ctx());
-    ui.set_width(620.0);
-    ui.horizontal_top(|ui| {
+    // On the phone the two columns stack (field names above the properties) and take the screen's width.
+    let phone = crate::phone::active(ui.ctx());
+    if !phone {
+        ui.set_width(620.0);
+    }
+    let columns = |ui: &mut Ui| {
         // Left: category and field names.
         ui.vertical(|ui| {
-            ui.set_width(200.0);
+            if !phone {
+                ui.set_width(200.0);
+            }
             ui.label(egui::RichText::new(tl!("Pick a field from the list")).font(semibold(12.5)));
             ui.label(tl!("Categories:"));
             let shown = tl!(f.category.as_str()).to_string();
@@ -311,7 +317,12 @@ pub(super) fn field_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FieldForm) -> boo
                 ui.checkbox(&mut f.preserve, tl!("Preserve formatting during updates"));
             }
         });
-    });
+    };
+    if phone {
+        ui.vertical(columns);
+    } else {
+        ui.horizontal_top(columns);
+    }
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(tl!("Field code:")).font(semibold(12.0)));

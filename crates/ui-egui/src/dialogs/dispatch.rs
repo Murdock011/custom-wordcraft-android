@@ -690,13 +690,19 @@ fn link_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         return false;
     };
     // Word's "Link to:" choices; the places are read once, when that tab is first shown.
-    ui.horizontal(|ui| {
+    let link_to = |ui: &mut Ui| {
         ui.label(tl!("Link to:"));
         ui.selectable_value(place, false, tl!("Existing File or Web Page"));
         if ui.selectable_value(place, true, tl!("Place in This Document")).clicked() && targets.is_none() {
             *targets = app.run("link.targets", json!({})).ok();
         }
-    });
+    };
+    // The phone wraps the choices onto a second row so "Place in This Document" stays on the screen.
+    if crate::phone::active(ui.ctx()) {
+        ui.horizontal_wrapped(link_to);
+    } else {
+        ui.horizontal(link_to);
+    }
     ui.add_space(4.0);
     egui::Grid::new("lnk").num_columns(2).show(ui, |ui| {
         ui.label(tl!("Text to display:"));

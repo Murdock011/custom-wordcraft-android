@@ -724,3 +724,65 @@ fn phone_spelling_opens_the_suggestions_menu_not_the_pane() {
     }
     assert!(a.canvas.context_menu_open, "the suggestions menu is open");
 }
+
+/// The phone's Options › Proofing has no Dictionaries section: a phone has no folder of Hunspell
+/// files to point at. The desktop keeps it.
+#[test]
+fn phone_proofing_has_no_dictionaries_section() {
+    for (width, shown) in [(412.0, false), (1440.0, true)] {
+        let mut a = app();
+        a.run("file.options", json!({})).unwrap();
+        a.ui.options_pane = "proofing".to_string();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(width, 915.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        if width < 600.0 {
+            crate::options::set_phone_category_open(&h.ctx, true);
+        }
+        h.run_steps(4);
+        assert!(h.query_all_by_label("Custom dictionary").next().is_some(), "{width}: Proofing is open");
+        let folder = h.query_all_by_label("Dictionaries folder:").next().is_some();
+        assert_eq!(folder, shown, "{width} pt: the Dictionaries folder field");
+    }
+}
+
+/// Phone dialog sheets (AutoCorrect, Symbol, Special Characters, Source Manager, Field, Insert
+/// Hyperlink): every button and tab they show sits inside the 412 pt screen, and the pinned OK or
+/// Insert is on the screen.
+#[test]
+fn phone_dialog_controls_fit_the_screen() {
+    let cases: [(&str, &[&str]); 6] = [
+        ("autoCorrect", &["OK", "Cancel", "AutoCorrect", "AutoFormat As You Type", "Math AutoCorrect"]),
+        ("symbol", &["Close", "Insert", "Symbols", "Special Characters"]),
+        ("specialCharacters", &["Close", "Insert", "Shortcut key:"]),
+        ("sourceManager", &["New…", "Import…", "Edit…", "Delete", "Insert Citation", "Close"]),
+        ("field", &["OK", "Cancel"]),
+        ("link", &["OK", "Cancel", "Place in This Document", "Existing File or Web Page"]),
+    ];
+    for (name, labels) in cases {
+        let mut a = app();
+        a.dialog = dialogs::Dialog::open(name, &mut a);
+        assert!(a.dialog.is_some(), "{name} opens");
+        let mut h = egui_kittest::Harness::builder().with_accessibility_check(false).with_size(egui::vec2(412.0, 915.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        for label in labels {
+            let found: Vec<_> = h.query_all_by_label(label).map(|n| n.rect()).collect();
+            assert!(!found.is_empty(), "{name} shows {label}");
+            for r in found {
+                assert!(r.right() <= 412.5 && r.left() >= -0.5, "{name}: {label} fits the width: {r:?}");
+            }
+        }
+    }
+}

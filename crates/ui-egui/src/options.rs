@@ -448,9 +448,12 @@ fn proofing(app: &mut WordApp, ui: &mut Ui) {
     ui.add_space(8.0);
     section(ui, "Custom dictionary");
     custom_dictionary(app, ui);
-    ui.add_space(8.0);
-    section(ui, "Dictionaries");
-    dictionaries(app, ui);
+    // A phone has no folder of Hunspell files to point at (Android), so the Dictionaries section is desktop only.
+    if !crate::phone::active(ui.ctx()) {
+        ui.add_space(8.0);
+        section(ui, "Dictionaries");
+        dictionaries(app, ui);
+    }
 }
 
 /// Where the spelling dictionaries come from (#1063): a folder searched before the system's

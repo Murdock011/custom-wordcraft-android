@@ -64,6 +64,9 @@ pub fn body(app: &mut WordApp, ui: &mut Ui, d: &mut ReviewDialog) -> bool {
 
 /// OK / Cancel; returns (ok, cancel). `ok_enabled` greys OK out.
 fn buttons(ui: &mut Ui, ok_enabled: bool) -> (bool, bool) {
+    if let Some(r) = crate::dialogs::footer_buttons(ui, tl!("OK"), tl!("Cancel"), ok_enabled, false, true) {
+        return r;
+    }
     let mut r = (false, false);
     ui.add_space(8.0);
     ui.horizontal(|ui| {
@@ -385,13 +388,19 @@ fn list_change(app: &mut WordApp, f: &mut AutoCorrectForm, params: Value) -> boo
 }
 
 fn autocorrect_ui(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) -> bool {
-    ui.horizontal(|ui| {
+    let tab_row = |ui: &mut Ui, f: &mut AutoCorrectForm| {
         for (i, l) in ["AutoCorrect", "AutoFormat As You Type", "Math AutoCorrect"].into_iter().enumerate() {
             if ui.selectable_label(f.tab == i as u8, tl!(l)).clicked() {
                 f.tab = i as u8;
             }
         }
-    });
+    };
+    // On the phone the three tabs wrap onto a second row instead of running off the right edge.
+    if crate::phone::active(ui.ctx()) {
+        ui.horizontal_wrapped(|ui| tab_row(ui, f));
+    } else {
+        ui.horizontal(|ui| tab_row(ui, f));
+    }
     ui.separator();
     match f.tab {
         0 => autocorrect_tab(app, ui, f),

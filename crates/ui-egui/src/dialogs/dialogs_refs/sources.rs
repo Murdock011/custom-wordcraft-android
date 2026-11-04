@@ -237,8 +237,10 @@ pub(super) fn sources_ui(app: &mut WordApp, ui: &mut Ui, selected: &mut Option<u
         })
         .collect();
     ui.label(tl!("Sources in this document:"));
+    // The phone's body is 380 pt wide, and the frame's 4 pt margins sit inside it.
+    let phone = crate::phone::active(ui.ctx());
     egui::Frame::new().stroke(egui::Stroke::new(1.0, t.border_strong)).inner_margin(4.0).show(ui, |ui| {
-        ui.set_min_size(vec2(380.0, 160.0));
+        ui.set_min_size(vec2(if phone { 372.0 } else { 380.0 }, 160.0));
         egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
             if list.is_empty() {
                 ui.label(egui::RichText::new(tl!("No sources yet.")).color(t.text_dim));
@@ -253,7 +255,8 @@ pub(super) fn sources_ui(app: &mut WordApp, ui: &mut Ui, selected: &mut Option<u
     let src = selected.and_then(|i| app.session.doc.sources.get(i)).cloned();
     let mut next = Next::Stay;
     ui.add_space(6.0);
-    ui.horizontal(|ui| {
+    // The buttons wrap onto a second row on the phone rather than running past its edge.
+    let buttons = |ui: &mut Ui| {
         if ui.button(tl!("New…")).clicked() {
             next = go(RefsDialog::Source(Box::new(SourceForm::new(false, true))));
         }
@@ -286,7 +289,12 @@ pub(super) fn sources_ui(app: &mut WordApp, ui: &mut Ui, selected: &mut Option<u
             }
             next = Next::Close;
         }
-    });
+    };
+    if phone {
+        ui.horizontal_wrapped(buttons);
+    } else {
+        ui.horizontal(buttons);
+    }
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
