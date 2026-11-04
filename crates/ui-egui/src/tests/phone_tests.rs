@@ -254,7 +254,7 @@ fn phone_formatting_bar_stays_under_a_dialog_sheet() {
     h.run_steps(4);
     let ok = h.get_by_label("OK").rect();
     let top = h.ctx.layer_id_at(ok.center()).expect("something is under the OK button");
-    assert_eq!(top.id, egui::Id::new(("dialog", "Font")), "the dialog sheet is on top at OK, not the formatting bar");
+    assert_eq!(top.id, egui::Id::unique(("dialog", "Font")), "the dialog sheet is on top at OK, not the formatting bar");
     assert!(!h.state().formatting_bar_shown(), "the formatting bar is hidden while the sheet is open");
     h.state_mut().dialog = None;
     h.run_steps(3);
@@ -334,7 +334,7 @@ fn desktop_dialog_keeps_its_window() {
     let mut h = harness(a);
     h.run_steps(4);
     assert!(!h.state().phone);
-    let window = h.ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", "Font")))).expect("the dialog is a window");
+    let window = h.ctx.memory(|m| m.area_rect(egui::Id::unique(("dialog", "Font")))).expect("the dialog is a window");
     assert!(window.width() < 1440.0 * 0.6, "a desktop dialog is not full width: {window:?}");
     assert!(h.get_by_label("OK").rect().height() < 40.0, "desktop buttons keep their size");
 }

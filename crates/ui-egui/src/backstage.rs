@@ -66,7 +66,7 @@ fn drawer_pages() -> [(&'static str, &'static str, &'static str); 11] {
 
 /// Whether the phone's navigation drawer is open. Kept in egui's memory, as the phone bars keep theirs.
 fn drawer_id() -> egui::Id {
-    egui::Id::new("phone_backstage_drawer")
+    egui::Id::unique("phone_backstage_drawer")
 }
 
 fn drawer_open(ctx: &egui::Context) -> bool {
@@ -120,7 +120,7 @@ fn phone_show(app: &mut WordApp, ui: &mut Ui) {
         // A modal drawer floats over the page, as Material's does, so the page keeps its width.
         let height = ui.ctx().content_rect().height() - 56.0;
         let shadow = egui::Shadow { offset: [0, 6], blur: 18, spread: 0, color: egui::Color32::from_black_alpha(80) };
-        egui::Area::new(egui::Id::new("backstage_drawer")).anchor(Align2::LEFT_TOP, vec2(0.0, 56.0)).order(egui::Order::Foreground).show(
+        egui::Area::new(egui::Id::unique("backstage_drawer")).anchor(Align2::LEFT_TOP, vec2(0.0, 56.0)).order(egui::Order::Foreground).show(
             ui.ctx(),
             |ui| {
                 egui::Frame::NONE.fill(m.surface_low).shadow(shadow).inner_margin(egui::Margin::symmetric(0, 16)).show(ui, |ui| {
@@ -131,7 +131,7 @@ fn phone_show(app: &mut WordApp, ui: &mut Ui) {
                         let on = has_document || works_without_document(id);
                         let active = app.ui.backstage_page == id;
                         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
-                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, tl!(label)));
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, on, tl!(label)));
                         // The active page is a tinted pill, as Material's drawer marks its current item.
                         let fill = if active {
                             m.primary_container
@@ -416,7 +416,7 @@ fn recovery_page(app: &mut WordApp, ui: &mut Ui) {
 /// Opens a side-menu page, as a click on it (or its keytip) does. Without a document only the
 /// pages that work without one open. On Android Close stays open either way: it ends the app.
 pub(crate) fn go_to_page(app: &mut WordApp, id: &str) {
-    if !app.has_document() && !works_without_document(id) && !(id == "close" && app.services.close_quits) {
+    if !(app.has_document() || works_without_document(id) || id == "close" && app.services.close_quits) {
         return;
     }
     match id {

@@ -455,7 +455,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     let mut inner: Option<bool> = None;
     let closed = if app.phone {
         // On the phone, a bottom sheet like the other dialogs (its OK and Cancel pinned at the bottom).
-        crate::phone::dialog_sheet(ctx, Id::new("wordcraft.colorsDialog"), "Colors", |ui| {
+        crate::phone::dialog_sheet(ctx, Id::unique("wordcraft.colorsDialog"), "Colors", |ui| {
             inner = body(ui, &mut d);
             inner.is_some()
         })
@@ -910,7 +910,7 @@ mod tests {
                 for _ in 0..3 {
                     let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(screen, 800.0))), ..Default::default() };
                     ctx.run_ui(input, |ui| {
-                        egui::Modal::new(Id::new("test.colorsDialog")).show(ui.ctx(), |ui| {
+                        egui::Modal::new(Id::unique("test.colorsDialog")).show(ui.ctx(), |ui| {
                             body(ui, &mut d);
                             content = ui.min_rect();
                         });

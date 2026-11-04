@@ -78,7 +78,7 @@ pub fn show(app: &mut WordApp, ctx: &egui::Context) {
     let t = Tokens::get(ctx);
     let mut run: Option<(&'static str, serde_json::Value)> = None;
     let close = if app.phone {
-        let (close, _) = crate::phone::dialog_sheet(ctx, egui::Id::new("read-aloud-player"), "Read Aloud", |ui| {
+        let (close, _) = crate::phone::dialog_sheet(ctx, egui::Id::unique("read-aloud-player"), "Read Aloud", |ui| {
             controls(app, ui, &t, true, &mut run);
             false
         });
@@ -147,7 +147,7 @@ fn controls(app: &WordApp, ui: &mut Ui, t: &Tokens, phone: bool, run: &mut Optio
     ui.add_space(6.0);
     // Speed: applied when the slider is let go, so dragging doesn't restart the sentence
     // on every frame.
-    let id = egui::Id::new("read-aloud-rate");
+    let id = egui::Id::unique("read-aloud-rate");
     let mut rate = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or_else(|| app.session.read_aloud.rate());
     ui.horizontal(|ui| {
         let speed = ui.label(tl!("Speed"));
@@ -224,7 +224,7 @@ mod tests {
             );
             harness.run_steps(4);
             assert_eq!(harness.state().phone, phone, "a {w} pt screen");
-            let area = harness.ctx.memory(|m| m.area_rect(egui::Id::new("read-aloud-player"))).expect("the player is drawn");
+            let area = harness.ctx.memory(|m| m.area_rect(egui::Id::unique("read-aloud-player"))).expect("the player is drawn");
             if phone {
                 assert!((area.width() - w).abs() < 1.0, "the sheet is the full width: {area:?}");
                 assert!(area.bottom() <= h + 1.0 && area.top() > h / 2.0, "a bottom sheet: {area:?}");
