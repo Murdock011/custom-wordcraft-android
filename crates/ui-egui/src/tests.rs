@@ -7211,3 +7211,42 @@ fn focus_hides_the_ribbon_and_escape_brings_it_back() {
     h.step();
     assert!(h.state().session.view.read_mode && shown(&h, "Focus"), "Immersive Reader keeps the status bar");
 }
+
+/// Android: the input method's composing range is underlined. A range outside the document, stale or
+/// hostile, draws nothing, and does not panic.
+#[test]
+fn composing_range_is_underlined_and_hostile_ranges_draw_nothing() {
+    let doc = wordcraft_doc::Document::from_text("Hello world");
+    let start = doc.start_of(wordcraft_doc::StoryRef::Body);
+    let at = |off: usize| wordcraft_doc::Pos::new(wordcraft_doc::StoryRef::Body, start.path.clone(), off);
+    // The line segments of the last of four frames.
+    let segments = |composing: Option<(wordcraft_doc::Pos, wordcraft_doc::Pos)>| -> Vec<[egui::Pos2; 2]> {
+        let mut app = WordApp::new(Session::new(doc.clone()), Services::default());
+        app.canvas.composing = composing;
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 740.0));
+        let ctx = egui::Context::default();
+        let mut found = Vec::new();
+        for i in 0..4 {
+            let input = egui::RawInput { time: Some(1.0 + f64::from(i) / 60.0), screen_rect: Some(screen), ..Default::default() };
+            let out = ctx.run_ui(input, |ui| {
+                app.logic(ui.ctx());
+                app.ui(ui);
+            });
+            found =
+                out.shapes.iter().filter_map(|s| if let egui::Shape::LineSegment { points, .. } = &s.shape { Some(*points) } else { None }).collect();
+            out.drop_without_applying_deltas();
+        }
+        found
+    };
+    // Horizontal segments only: the caret, which blinks in and out between frames, is vertical.
+    let horizontal = |found: Vec<[egui::Pos2; 2]>| -> Vec<[egui::Pos2; 2]> { found.into_iter().filter(|seg| seg[0].y == seg[1].y).collect() };
+    let none = horizontal(segments(None));
+    let valid = horizontal(segments(Some((at(0), at(5)))));
+    let underlines: Vec<_> = valid.iter().filter(|seg| !none.contains(seg)).collect();
+    assert_eq!(underlines.len(), 1, "one underline for the one line the word is on: {underlines:?}");
+    let stale_path = wordcraft_doc::Pos::new(wordcraft_doc::StoryRef::Body, wordcraft_doc::Path::top(42), 0);
+    assert_eq!(horizontal(segments(Some((at(900), at(999))))), none, "offsets past the paragraph draw nothing");
+    assert_eq!(horizontal(segments(Some((at(5), at(0))))), none, "a reversed range draws nothing");
+    assert_eq!(horizontal(segments(Some((at(3), at(3))))), none, "an empty range draws nothing");
+    assert_eq!(horizontal(segments(Some((stale_path.clone(), stale_path)))), none, "a paragraph that is not in the document draws nothing");
+}

@@ -156,6 +156,9 @@ pub struct CanvasState {
     /// The chars of `ime_preedit` the input method marks as its cursor or selection, as it reports
     /// them (unchecked).
     pub(crate) ime_preedit_range: Option<std::ops::Range<usize>>,
+    /// Android: the document range the input method is composing; drawn underlined. None on
+    /// desktop and web.
+    pub composing: Option<(Pos, Pos)>,
     /// Document faces added to the interface fonts so the input method's composition (#565) and a
     /// file name in the window caption can be drawn.
     pub(crate) ime_faces: Vec<std::sync::Arc<wordcraft_fonts::FontFace>>,
@@ -390,6 +393,7 @@ impl Default for CanvasState {
             render_ms: 0.0,
             ime_preedit: String::new(),
             ime_preedit_range: None,
+            composing: None,
             ime_faces: Vec::new(),
             want_focus: true,
             context_issue: None,
@@ -1153,6 +1157,27 @@ fn paint_read_aloud_highlight(
     }
 }
 
+/// The composing range when both ends are inside the document, in order and not empty; any other
+/// range (stale or hostile offsets) is None.
+fn composing_range(doc: &wordcraft_doc::Document, a: &Pos, b: &Pos) -> Option<(Pos, Pos)> {
+    let inside = |p: &Pos| doc.para_at(p).is_some_and(|para| para.text.is_char_boundary(p.off));
+    (a < b && inside(a) && inside(b)).then(|| (a.clone(), b.clone()))
+}
+
+/// Android: underlines the document range the input method is composing (`canvas.composing`) on
+/// each line it covers, in the text colour, as Android text fields do. A range outside the
+/// document draws nothing.
+fn paint_composing_underline(app: &WordApp, painter: &egui::Painter, layout: &DocLayout, rects: &[Rect], geo: &Geometry, t: &Tokens) {
+    let Some((a, b)) = app.canvas.composing.as_ref().and_then(|(a, b)| composing_range(&app.session.doc, a, b)) else { return };
+    for (pi, r) in layout.selection_rects(&app.session.doc, &a, &b, app.session.page_hint) {
+        if let Some(pr) = rects.get(pi) {
+            let scale = layout.pages.get(pi).map_or(geo.scale, |page| page_screen_scale(*pr, page, geo.scale));
+            let sr = Rect::from_min_size(pos2(pr.min.x + r.x * scale, pr.min.y + r.y * scale), vec2(r.w * scale, r.h * scale));
+            painter.hline(sr.x_range(), sr.max.y - 0.5, Stroke::new(1.5, t.text));
+        }
+    }
+}
+
 fn canvas_response(app: &mut WordApp, ui: &mut Ui, content: Rect, scroll_target: Option<Rect>, taken: bool) -> egui::Response {
     // A fixed id: an automatic one follows how many widgets came before, which Read Mode's
     // chrome changes, and a new id dropped the keyboard focus, so the arrows, Page Up/Down
@@ -1623,6 +1648,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         // Content controls: the frame of the one the caret is in (all of them in Design Mode).
         crate::content_controls::paint(app, &painter, &t, &layout, &rects, geo.scale);
         paint_read_aloud_highlight(app, &painter, &layout, &rects, &geo, &t);
+        paint_composing_underline(app, &painter, &layout, &rects, &geo, &t);
         // Caret.
         let focused = resp.has_focus() || app.canvas.focused;
         // After an automatic change the web's text agent starts afresh

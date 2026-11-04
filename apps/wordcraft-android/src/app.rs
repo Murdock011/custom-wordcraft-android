@@ -165,6 +165,14 @@ impl Shell {
         Some((s.sel.focus.clone(), para.text.clone()))
     }
 
+    /// The composition's document range, for the canvas to underline (`canvas.composing`).
+    fn mirror_composing(&mut self) {
+        self.app.canvas.composing = self.held.as_ref().and_then(|h| {
+            let (start, end) = ime::span_bytes(&h.span)?;
+            Some((Pos { off: start, ..h.at.clone() }, Pos { off: end, ..h.at.clone() }))
+        });
+    }
+
     /// Keeps the held span only while the caret is where it was left and the text is unchanged.
     /// Otherwise the span is dropped and its text stays in the document.
     fn sync_held(&mut self) {
@@ -386,6 +394,7 @@ impl eframe::App for Shell {
             self.sync_held();
             ime::publish_context(self.context_line());
         }
+        self.mirror_composing();
         // egui sets `output.ime` while a text position is focused: that is when the keyboard shows.
         let wants = ui.ctx().output(|o| o.ime.is_some());
         ime::WANTS_KEYBOARD.store(wants, std::sync::atomic::Ordering::Relaxed);

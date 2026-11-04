@@ -200,6 +200,11 @@ pub fn sync(held: &Span, fresh: bool, para: &str, caret: usize) -> Option<Span> 
     if fresh { resynced(held.start, para, caret) } else { holds(held, para, caret).then(|| held.clone()) }
 }
 
+/// The bytes of the span in its paragraph, `(start, end)`; None when it holds no text.
+pub fn span_bytes(span: &Span) -> Option<(usize, usize)> {
+    (!span.text.is_empty()).then(|| (span.start, span.end()))
+}
+
 /// The composing region `start..end` (UTF-16, in `para`) the input method set over text. The words
 /// stay where they are, marked as the composition, with the caret inside them. `None` when the
 /// offsets are invalid, the caret is outside them, or the region is empty.
@@ -565,5 +570,21 @@ mod tests {
         t.handle(Msg::Finish);
         t.handle(Msg::Delete { before: 1, after: 0 });
         assert_eq!((t.doc.para.as_str(), t.doc.caret), ("xyzabc", 1), "the x at the tap is gone, the rest is unchanged");
+    }
+
+    #[test]
+    fn the_composing_word_is_the_range_the_canvas_underlines() {
+        let mut t = Typist::at("ab ", 3);
+        t.handle(Msg::Compose("he".into()));
+        // The end of frame reads the span again (`sync_held`), then the app mirrors it.
+        t.sync_held();
+        assert_eq!(t.held.as_ref().and_then(span_bytes), Some((3, 5)), "the composed letters are underlined");
+        t.handle(Msg::Commit("he".into()));
+        t.sync_held();
+        assert_eq!(t.held.as_ref().and_then(span_bytes), None, "committed text is no longer composing");
+        t.handle(Msg::Compose("x".into()));
+        t.sync_held();
+        t.handle(Msg::Finish);
+        assert_eq!(t.held.as_ref().and_then(span_bytes), None, "finished text is no longer composing");
     }
 }
