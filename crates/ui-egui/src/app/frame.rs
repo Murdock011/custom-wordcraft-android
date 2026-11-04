@@ -69,6 +69,7 @@ impl WordApp {
                 let _ = self.run("view.webLayout", json!({}));
             }
             phone::top_bar(self, ui);
+            crate::language_packs::bar(self, ui);
             phone::status_line(self, ui);
             // A dialog sheet takes the bottom of the screen: the formatting bar stays away while it is open.
             if self.formatting_bar_shown() {
@@ -77,6 +78,10 @@ impl WordApp {
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
                 canvas::show(self, ui);
             });
+            // Spelling & Grammar: the proofing sheet over the lower part of the page.
+            if self.spelling_review.is_some() {
+                crate::proofing_pane::phone_sheet(self, ctx);
+            }
         } else {
             let screen = chrome::Screen::of(&self.session.view);
             // Focus and Full Screen (#1678) take the whole screen, with only their slim bar.

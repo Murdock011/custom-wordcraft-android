@@ -86,16 +86,12 @@ impl WordApp {
             self.select_inserted_picture(&r);
         }
         // User proofing opens the persistent task pane; scripts keep structured results.
-        // Right-click and Shift+F10 retain their compact suggestions menu.
-        // The phone draws no task pane: there the suggestions menu opens instead, as before v0.15.
+        // Right-click and Shift+F10 retain their compact suggestions menu. On the phone the same
+        // state is drawn as a bottom sheet (`proofing_pane::phone_sheet`, from the phone frame).
         if matches!(id, "review.spelling" | "review.editor")
             && let Ok(v) = &r
         {
-            if !self.phone {
-                self.spelling_review = Some(crate::proofing_pane::SpellingForm::new(self, v.clone()));
-            } else if v.get("done").and_then(serde_json::Value::as_bool) != Some(true) {
-                self.canvas.context_menu_from_keys = true;
-            }
+            self.spelling_review = Some(crate::proofing_pane::SpellingForm::new(self, v.clone()));
         }
         let r = system_clipboard::explain(self, id, r);
         // Check Accessibility shows its findings in the Accessibility pane, kept up to date there.

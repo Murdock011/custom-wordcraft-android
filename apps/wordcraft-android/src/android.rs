@@ -18,6 +18,9 @@ use crate::ime::{self, Msg};
 fn android_main(app: AndroidApp) {
     android_logger::init_once(android_logger::Config::default().with_max_level(log::LevelFilter::Info).with_tag("wordcraft"));
     if let Some(dir) = app.internal_data_path() {
+        // Language packs: the phone has no default font store folder (the engine finds none on
+        // Android), so the packs live in the app's own folder. Installs need the person's Install click.
+        wordcraft_engine::packs::use_font_store_in(dir.join("font-store"), true);
         let _ = files::DIR.set(dir);
     }
     let options = eframe::NativeOptions { android_app: Some(app), ..Default::default() };
