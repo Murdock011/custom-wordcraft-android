@@ -571,9 +571,9 @@ fn new_page(app: &mut WordApp, ui: &mut Ui) {
     heading(ui, "New");
     let id = app.window_id("backstage_template_search");
     let mut query = ui.ctx().data(|d| d.get_temp::<String>(id)).unwrap_or_default();
-    let search = crate::phone::compact_field(ui, |ui| {
-        ui.add(egui::TextEdit::singleline(&mut query).hint_text(tl!("Search for templates")).desired_width(360.0))
-    });
+    // The phone's search field is 48 pt tall (touch_edit); the desktop's is as it was.
+    let search =
+        ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut query).hint_text(tl!("Search for templates")).desired_width(360.0)));
     if search.changed() {
         ui.ctx().data_mut(|d| d.insert_temp(id, query.clone()));
     }
@@ -835,17 +835,25 @@ fn offers_builtin_browser(app: &WordApp) -> bool {
     app.services.open_async.is_none()
 }
 
+/// A File page's button: on the phone a full-width 48 pt row, on the desktop its usual size at `size` pt.
+fn page_button(ui: &mut Ui, label: impl Into<String>, size: f32) -> egui::Response {
+    if crate::phone::active(ui.ctx()) {
+        ui.add_sized([ui.available_width(), crate::phone::TOUCH_H], egui::Button::new(egui::RichText::new(label).font(medium(16.0))))
+    } else {
+        ui.button(egui::RichText::new(label).font(medium(size)))
+    }
+}
+
 fn open_page(app: &mut WordApp, ui: &mut Ui) {
     heading(ui, "Open");
-    if ui.button(egui::RichText::new(tl!("Browse…")).font(medium(14.0))).clicked() {
+    if page_button(ui, tl!("Browse…"), 14.0).clicked() {
         let _ = app.run("ui.openFileDialog", json!({}));
     }
     // Linux and the BSDs (#576): the system dialog needs a file chooser portal or zenity; when it
     // doesn't show up, WordCraft's own browser is always one click away.
     #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
     if offers_builtin_browser(app)
-        && ui
-            .button(egui::RichText::new(tl!("Browse in WordCraft…")).font(medium(14.0)))
+        && page_button(ui, tl!("Browse in WordCraft…"), 14.0)
             .on_hover_text(tl!("Open a file with WordCraft's own browser when the system file dialog doesn't appear."))
             .clicked()
     {
@@ -881,20 +889,28 @@ fn save_as_page(app: &mut WordApp, ui: &mut Ui) {
 fn info_page(app: &mut WordApp, ui: &mut Ui) {
     heading(ui, "Info");
     let info = app.session.run("file.info", &json!({})).unwrap_or_default();
-    ui.columns(2, |cols| {
-        let ui = &mut cols[0];
+    let phone = crate::phone::active(ui.ctx());
+    // Properties: the fields edit a copy of the document's properties that is read afresh every
+    // frame, so each change goes into the document as it is typed (#260): waiting for the field to
+    // lose focus dropped the keystrokes, and leaving File with Escape never loses it at all.
+    // The keystrokes of one visit to a field are a single undo step.
+    let mut properties = |ui: &mut Ui| {
         ui.label(egui::RichText::new(tl!("Properties")).font(semibold(15.0)));
-        // The fields edit a copy of the document's properties that is read afresh every frame,
-        // so each change goes into the document as it is typed (#260): waiting for the field to
-        // lose focus dropped the keystrokes, and leaving File with Escape never loses it at all.
-        // The keystrokes of one visit to a field are a single undo step.
         let mut props = app.session.doc.core.clone();
         let mut edited = None;
         let mut focused = None;
         egui::Grid::new("props").num_columns(2).spacing(vec2(12.0, 6.0)).show(ui, |ui| {
-            for (l, v) in [("Title", &mut props.title), ("Subject", &mut props.subject), ("Author", &mut props.creator), ("Keywords", &mut props.keywords), ("Category", &mut props.category)] {
+            for (l, v) in [
+                ("Title", &mut props.title),
+                ("Subject", &mut props.subject),
+                ("Author", &mut props.creator),
+                ("Keywords", &mut props.keywords),
+                ("Category", &mut props.category),
+            ] {
                 let label = ui.label(tl!(l));
-                let r = crate::phone::compact_field(ui, |ui| ui.add(egui::TextEdit::singleline(v).id_salt(("info-prop", l)))).labelled_by(label.id);
+                // The phone's fields are 48 pt tall (touch_edit); the desktop's are as they were.
+                let field = egui::TextEdit::singleline(v).id_salt(("info-prop", l));
+                let r = ui.add(crate::phone::touch_edit(ui, field)).labelled_by(label.id);
                 if r.changed() {
                     edited = Some(l);
                 }
@@ -916,11 +932,7 @@ fn info_page(app: &mut WordApp, ui: &mut Ui) {
         }
         // Advanced Properties › Custom (#2982): view and edit the document's custom properties.
         ui.add_space(6.0);
-        if ui
-            .button(egui::RichText::new(tl!("Advanced Properties…")).font(medium(13.5)))
-            .on_hover_text(tl!("View and edit the document's custom properties."))
-            .clicked()
-        {
+        if page_button(ui, tl!("Advanced Properties…"), 13.5).on_hover_text(tl!("View and edit the document's custom properties.")).clicked() {
             let _ = app.run("ui.dialog", json!({"name": "customProperties"}));
         }
         // Protect Document › Encrypt with Password (#55).
@@ -932,23 +944,43 @@ fn info_page(app: &mut WordApp, ui: &mut Ui) {
         } else {
             tl!("Anyone can open this document. Encrypt it with a password to keep it private.")
         });
-        ui.horizontal(|ui| {
+        let buttons = |ui: &mut Ui| {
             let label = if encrypted { tl!("Change Password…") } else { tl!("Encrypt with Password…") };
-            if ui.button(egui::RichText::new(label).font(medium(13.5))).clicked() {
+            if page_button(ui, label, 13.5).clicked() {
                 let _ = app.run("file.encrypt", json!({}));
             }
-            if encrypted && ui.button(egui::RichText::new(tl!("Remove Password")).font(medium(13.5))).clicked() {
+            if encrypted && page_button(ui, tl!("Remove Password"), 13.5).clicked() {
                 let _ = app.run("file.encrypt", json!({"password": null}));
             }
-        });
-        let ui = &mut cols[1];
+        };
+        // On the phone each button takes a row of its own.
+        if phone {
+            ui.vertical(buttons);
+        } else {
+            ui.horizontal(buttons);
+        }
+    };
+    let statistics = |ui: &mut Ui| {
         ui.label(egui::RichText::new(tl!("Statistics")).font(semibold(15.0)));
         for (l, k) in [("Pages", "pages"), ("Words", "words"), ("Paragraphs", "paragraphs"), ("Sections", "sections"), ("Comments", "comments")] {
             ui.label(format!("{}: {}", tl!(l), info.get(k).map(|v| v.to_string()).unwrap_or_default()));
         }
         let path = info.get("path").and_then(|v| v.as_str()).unwrap_or(tl!("Not saved yet"));
         ui.label(crate::i18n::fmt(tl!("Location: {path}"), &[("path", path)]));
-    });
+    };
+    // The phone has no width for two columns: Statistics goes below Properties.
+    if phone {
+        ui.vertical(|ui| {
+            properties(ui);
+            ui.add_space(24.0);
+            statistics(ui);
+        });
+    } else {
+        ui.columns(2, |cols| {
+            properties(&mut cols[0]);
+            statistics(&mut cols[1]);
+        });
+    }
 }
 
 fn export_page(app: &mut WordApp, ui: &mut Ui) {

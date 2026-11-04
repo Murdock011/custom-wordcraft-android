@@ -786,3 +786,30 @@ fn phone_dialog_controls_fit_the_screen() {
         }
     }
 }
+
+/// The phone's File pages use touch-sized controls: Export's format rows, the Print page's Save
+/// button, Info's Advanced Properties, and Open's Browse are 48 pt tall and fit the 412 pt screen.
+#[test]
+fn phone_file_pages_are_touch_sized() {
+    for (page, label) in
+        [("export", "PDF document (*.pdf)"), ("print", "Save these pages as PDF…"), ("info", "Advanced Properties…"), ("open", "Browse…")]
+    {
+        let mut a = app();
+        a.run("ui.backstage", json!({"value": true, "page": page})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(412.0, 915.0)).build_ui_state(
+            |ui, app: &mut WordApp| {
+                let ctx = ui.ctx().clone();
+                app.logic(&ctx);
+                app.ui(ui);
+            },
+            a,
+        );
+        h.run_steps(4);
+        let found: Vec<_> = h.query_all_by_label(label).map(|n| n.rect()).collect();
+        assert!(!found.is_empty(), "{page} shows {label}");
+        for r in found {
+            assert!(r.height() >= 48.0, "{page}: {label} is 48 pt tall on the phone: {r:?}");
+            assert!(r.right() <= 412.5 && r.left() >= -0.5, "{page}: {label} fits the width: {r:?}");
+        }
+    }
+}

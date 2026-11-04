@@ -1668,6 +1668,16 @@ pub(crate) fn list_row(ui: &mut Ui, m: Md, label: &str, icon: &str, chevron: boo
     resp
 }
 
+/// A full-width 48 pt row with only a label, no icon or chevron: a choice in a list, such as the
+/// File pages' export formats. A state layer shows on hover and press.
+pub(crate) fn text_row(ui: &mut Ui, m: Md, label: &str) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), LIST_ROW_H), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, crate::tl!(label)));
+    paint_state(ui, r, 0, m.on_surface, &resp);
+    ui.painter().text(Pos2::new(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, crate::tl!(label), regular(16.0), m.on_surface);
+    resp
+}
+
 /// A switch's track: 52 x 32 pt, as Android's settings draw it.
 const SWITCH_W: f32 = 52.0;
 const SWITCH_H: f32 = 32.0;

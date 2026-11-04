@@ -81,11 +81,16 @@ const PARITIES: [(&str, &str); 3] = [("all", "All pages in the range"), ("odd", 
 const NO_SCALING: &str = "none";
 const ORIENTATIONS: [(&str, &str); 3] = [("auto", "Auto orientation"), ("portrait", "Portrait"), ("landscape", "Landscape")];
 
+/// A choice list's width: the phone's full settings column, the desktop's 260 pt.
+fn choice_width(ui: &Ui) -> f32 {
+    if crate::phone::active(ui.ctx()) { ui.available_width() } else { 260.0 }
+}
+
 /// A choice list over `(id, label)` pairs; true when the choice changed.
 fn choice(ui: &mut Ui, salt: &str, current: &mut String, items: &[(&str, &str)], label: &egui::Response) -> bool {
     let shown = items.iter().find(|(id, _)| *id == current.as_str()).map_or("", |(_, l)| *l);
     let mut changed = false;
-    let combo = craft_ui::ComboBox::from_id_salt(salt).width(260.0).selected_text(tl!(shown)).show_ui(ui, |ui| {
+    let combo = craft_ui::ComboBox::from_id_salt(salt).width(choice_width(ui)).selected_text(tl!(shown)).show_ui(ui, |ui| {
         for (id, item) in items {
             if ui.selectable_label(current == id, tl!(item)).clicked() && current != id {
                 *current = (*id).to_string();
@@ -101,7 +106,7 @@ fn choice(ui: &mut Ui, salt: &str, current: &mut String, items: &[(&str, &str)],
 fn choice_named(ui: &mut Ui, salt: &str, current: &mut String, items: &[(&str, &str)], name: &str) -> bool {
     let shown = items.iter().find(|(id, _)| *id == current.as_str()).map_or("", |(_, l)| *l);
     let mut changed = false;
-    let combo = craft_ui::ComboBox::from_id_salt(salt).width(260.0).selected_text(tl!(shown)).show_ui(ui, |ui| {
+    let combo = craft_ui::ComboBox::from_id_salt(salt).width(choice_width(ui)).selected_text(tl!(shown)).show_ui(ui, |ui| {
         for (id, item) in items {
             if ui.selectable_label(current == id, tl!(item)).clicked() && current != id {
                 *current = (*id).to_string();
@@ -156,12 +161,20 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
     let current = app.session.current_pages(&lay);
     app.ui.print.preview = app.ui.print.preview.min(total.saturating_sub(1));
 
-    ui.horizontal_top(|ui| {
+    let phone = crate::phone::active(ui.ctx());
+    // The settings: beside the preview on the desktop; on the phone above it, in at most half the page.
+    let settings = |app: &mut WordApp, ui: &mut Ui| {
         ui.vertical(|ui| {
-            ui.set_width(380.0);
+            ui.set_width(if phone { ui.available_width() } else { 380.0 });
             // The settings scroll on their own: the preview beside them keeps the whole height (#1156).
-            egui::ScrollArea::vertical().id_salt("print_settings").show(ui, |ui| {
+            let scroll = egui::ScrollArea::vertical().id_salt("print_settings");
+            let scroll = if phone { scroll.max_height(ui.available_height() * 0.5) } else { scroll };
+            scroll.show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
+                // The phone's controls are 48 pt touch targets, as its dialogs' are.
+                if phone {
+                    crate::phone::touch_style(ui);
+                }
                 let native = app.services.print_native.is_some();
                 let hook = native || app.services.print.is_some();
                 // #2958: as in Word, the page's action leads the settings, in the accent the app
@@ -169,7 +182,10 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 // that prints now rather than one more setting in the list below.
                 if hook
                     && ui
-                        .add_enabled(!native || app.printing.ready(), crate::widgets::primary_button(ui, tl!("Print")).min_size(vec2(320.0, 34.0)))
+                        .add_enabled(
+                            !native || app.printing.ready(),
+                            crate::widgets::primary_button(ui, tl!("Print")).min_size(button_size(ui, 34.0)),
+                        )
                         .clicked()
                 {
                     let params = app.ui.print.params();
@@ -189,7 +205,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     ui.label(tl!("Save a copy in another format. Printing goes through a PDF you can print from any viewer."));
                 }
                 if ui
-                    .add(egui::Button::new(egui::RichText::new(tl!("Save these pages as PDF…")).font(medium(13.5))).min_size(vec2(320.0, 34.0)))
+                    .add(egui::Button::new(egui::RichText::new(tl!("Save these pages as PDF…")).font(medium(13.5))).min_size(button_size(ui, 34.0)))
                     .clicked()
                 {
                     app.print_pdf_dialog();
@@ -218,15 +234,12 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     app.ui.print.preview = if app.ui.print.range == "all" { 0 } else { current.0.min(total.saturating_sub(1)) };
                 }
                 if app.ui.print.range == "custom" {
-                    crate::phone::compact_field(ui, |ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut app.ui.print.pages)
-                                .hint_text(tl!("Pages like 1-3, 5"))
-                                .desired_width(260.0)
-                                .char_limit(wordcraft_engine::print::MAX_SPEC_CHARS),
-                        )
-                    })
-                    .labelled_by(pages_label.id);
+                    // The phone's field is 48 pt tall (touch_edit); the desktop's is as it was.
+                    let field = egui::TextEdit::singleline(&mut app.ui.print.pages)
+                        .hint_text(tl!("Pages like 1-3, 5"))
+                        .desired_width(choice_width(ui))
+                        .char_limit(wordcraft_engine::print::MAX_SPEC_CHARS);
+                    ui.add(crate::phone::touch_edit(ui, field)).labelled_by(pages_label.id);
                 }
                 choice_named(ui, "print_parity", &mut app.ui.print.parity, &PARITIES, tl!("Pages in the range"));
                 let orientation_label = ui.label(egui::RichText::new(tl!("Orientation")).font(medium(13.0)));
@@ -258,9 +271,26 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                 export_formats(app, ui);
             });
         });
-        ui.add_space(24.0);
-        ui.vertical(|ui| preview(app, ui, &lay, total));
-    });
+    };
+    if phone {
+        ui.vertical(|ui| {
+            settings(app, ui);
+            ui.add_space(8.0);
+            ui.vertical(|ui| preview(app, ui, &lay, total));
+        });
+    } else {
+        ui.horizontal_top(|ui| {
+            settings(app, ui);
+            ui.add_space(24.0);
+            ui.vertical(|ui| preview(app, ui, &lay, total));
+        });
+    }
+}
+
+/// A Print page button's size: 34 pt tall and 320 pt wide on the desktop; on the phone the full
+/// width and a 48 pt touch target.
+fn button_size(ui: &Ui, desktop_h: f32) -> egui::Vec2 {
+    if crate::phone::active(ui.ctx()) { vec2(ui.available_width(), crate::phone::TOUCH_H) } else { vec2(320.0, desktop_h) }
 }
 
 /// Room around the page inside the preview pane.
@@ -354,6 +384,7 @@ pub(crate) const EXPORT_WORD_2003: &str = "wordml2003";
 
 /// The "save a copy" formats (File › Export, and below the settings on the Print page).
 pub fn export_formats(app: &mut WordApp, ui: &mut Ui) {
+    let phone = crate::phone::active(ui.ctx());
     for (label, ext) in [
         ("PDF document (*.pdf)", "pdf"),
         ("Word document (*.docx)", "docx"),
@@ -367,9 +398,17 @@ pub fn export_formats(app: &mut WordApp, ui: &mut Ui) {
         ("Plain text (*.txt)", "txt"),
         ("Page image (*.png)", "png"),
     ] {
-        if ui.add(egui::Button::new(egui::RichText::new(tl!(label)).font(medium(13.5))).min_size(vec2(320.0, 34.0))).clicked() {
+        // The phone lists the formats as full-width 48 pt rows; the desktop keeps its boxed buttons.
+        let clicked = if phone {
+            let m = crate::phone::md(ui.ctx());
+            crate::phone::text_row(ui, m, label).clicked()
+        } else {
+            let clicked = ui.add(egui::Button::new(egui::RichText::new(tl!(label)).font(medium(13.5))).min_size(vec2(320.0, 34.0))).clicked();
+            ui.add_space(4.0);
+            clicked
+        };
+        if clicked {
             app.export_dialog(ext);
         }
-        ui.add_space(4.0);
     }
 }
