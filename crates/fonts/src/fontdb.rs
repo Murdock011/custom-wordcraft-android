@@ -31,8 +31,10 @@ use fallback_data::{FallbackCache, RunFallbackCache};
 use fallback_data::{RUN_FALLBACK_CACHE_CHARS, coverage_ranges, ranges_hold};
 #[cfg(not(target_arch = "wasm32"))]
 use names::CatalogEntry;
+#[cfg(test)]
+use names::android_font_dirs;
 pub(crate) use names::face_names;
-pub use names::{LocalName, android_font_dirs, base_style, name_language_matches, system_font_dirs};
+pub use names::{LocalName, base_style, name_language_matches, system_font_dirs};
 use names::{MAX_FILE_FACES, enumerate_faces, make_face};
 #[cfg(test)]
 use names::{file_face_names, font_faces, mini_font, name};

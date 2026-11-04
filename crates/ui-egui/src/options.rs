@@ -211,7 +211,7 @@ fn pane_icon(id: &str) -> &'static str {
 
 /// Whether a category is open full width on the phone. Off: the list of categories shows.
 fn phone_category_id() -> egui::Id {
-    egui::Id::new("phone_options_category_open")
+    egui::Id::unique("phone_options_category_open")
 }
 
 pub(crate) fn phone_category_open(ctx: &egui::Context) -> bool {
@@ -243,7 +243,7 @@ fn phone_page(app: &mut WordApp, ui: &mut Ui) {
     }
     let current = if phone_panes().any(|id| id == app.ui.options_pane) { app.ui.options_pane.clone() } else { "general".to_string() };
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), egui::Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Back")));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tl!("Back")));
     if resp.hovered() || resp.is_pointer_button_down_on() {
         ui.painter().rect_filled(r, 0.0, m.surface_high);
     }

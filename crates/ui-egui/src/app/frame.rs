@@ -52,7 +52,7 @@ impl WordApp {
             backstage::show(self, ui);
         } else if !self.has_document() {
             // No document open (#1129): the ribbon greyed out but for Help, and no page.
-            if phone::active(&ctx) {
+            if phone::active(ctx) {
                 phone::top_bar(self, ui);
                 phone::status_line(self, ui);
             } else {
@@ -61,7 +61,7 @@ impl WordApp {
                 chrome::status_bar(self, ui);
             }
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |_| {});
-        } else if phone::active(&ctx) {
+        } else if phone::active(ctx) {
             // A phone: touch bars around the page. It opens in Web Layout, the edit view: text
             // reflows to the screen at a readable size. View › Print view switches to the pages.
             if !self.phone_fitted {

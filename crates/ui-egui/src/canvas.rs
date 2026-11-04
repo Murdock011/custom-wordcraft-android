@@ -1162,7 +1162,7 @@ fn canvas_response(app: &mut WordApp, ui: &mut Ui, content: Rect, scroll_target:
     // Phone: a one-finger drag scrolls the page, so the canvas only takes drags after a long
     // press (held still for 0.4 s), which starts a selection. A click-only canvas leaves the
     // drag to the scroll area. Desktop keeps click-and-drag.
-    let touch_select_id = egui::Id::new("wordcraft_touch_select");
+    let touch_select_id = egui::Id::unique("wordcraft_touch_select");
     let stored_select = ui.data(|d| d.get_temp::<bool>(touch_select_id)).unwrap_or(false);
     // A press on a selection handle drags it at once: the scroll gesture never gets it.
     let on_handle = app.phone && ui.input(|i| i.pointer.primary_pressed()) && handle_at(app, ui.input(|i| i.pointer.latest_pos())).is_some();
@@ -1188,7 +1188,7 @@ fn canvas_response(app: &mut WordApp, ui: &mut Ui, content: Rect, scroll_target:
             && !touch_select
             && let Some(o) = origin
         {
-            ui.data_mut(|d| d.insert_temp(egui::Id::new("wordcraft_long_press"), o));
+            ui.data_mut(|d| d.insert_temp(egui::Id::unique("wordcraft_long_press"), o));
         }
         if down && !next {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
@@ -1200,16 +1200,16 @@ fn canvas_response(app: &mut WordApp, ui: &mut Ui, content: Rect, scroll_target:
     response
 }
 
-fn handle_primary_pointer(
-    app: &mut WordApp,
-    ui: &Ui,
-    resp: &egui::Response,
-    rects: &[Rect],
-    layout: &DocLayout,
-    geo: &Geometry,
+/// Who else owns the primary button this frame. The double-click gap toggle ignores both.
+#[derive(Clone, Copy)]
+struct PointerGate {
+    /// A middle-button autoscroll is running.
     middle_gesture: bool,
+    /// The phone gave the pointer to a menu or sheet (`phone_pointer_taken`).
     taken: bool,
-) {
+}
+
+fn handle_primary_pointer(app: &mut WordApp, ui: &Ui, resp: &egui::Response, rects: &[Rect], layout: &DocLayout, geo: &Geometry, gate: PointerGate) {
     // Double-click the space between two pages (or the line between them) to hide or show it.
     if resp.double_clicked()
         && app.session.view.mode == wordcraft_layout::ViewMode::Print
@@ -1220,7 +1220,7 @@ fn handle_primary_pointer(
         let _ = app.run("view.hideWhiteSpace", json!({"value": !app.session.view.hide_white_space}));
     } else
     // Draw Table / Eraser own the mouse while on (no caret moves); else the usual editing.
-    if !middle_gesture && !taken && !crate::table_pen::pointer(app, ui, resp, rects, layout, geo.scale) {
+    if !gate.middle_gesture && !gate.taken && !crate::table_pen::pointer(app, ui, resp, rects, layout, geo.scale) {
         mouse(app, ui, resp, rects, layout, geo.scale);
     }
 }
@@ -1291,7 +1291,7 @@ fn finish_canvas_frame(finish: CanvasFinish<'_>, out: egui::scroll_area::ScrollA
     update_canvas_scroll_state(app, ui, layout, geo, caret, &out);
     let (resp, rects) = out.inner;
     // Phone long press: select the word under the press point (flagged in the touch block).
-    if let Some(origin) = ui.data_mut(|d| d.remove_temp::<Pos2>(egui::Id::new("wordcraft_long_press"))) {
+    if let Some(origin) = ui.data_mut(|d| d.remove_temp::<Pos2>(egui::Id::unique("wordcraft_long_press"))) {
         long_press_word(app, &rects, layout, geo.scale, origin);
     }
     // A click on the page leaves the selected comment balloon.
@@ -1301,7 +1301,7 @@ fn finish_canvas_frame(finish: CanvasFinish<'_>, out: egui::scroll_area::ScrollA
     crate::a11y::expose(app, ui.ctx(), resp.id, layout, &rects, area);
     // The buttons that start or stop middle-click scrolling don't also click the page.
     let middle_gesture = app.canvas.auto_scroll.blocks_input();
-    handle_primary_pointer(app, ui, &resp, &rects, layout, geo, middle_gesture, taken);
+    handle_primary_pointer(app, ui, &resp, &rects, layout, geo, PointerGate { middle_gesture, taken });
     // A click on a check box ticks it; on a list's button opens the list.
     if !middle_gesture {
         crate::content_controls::clicks(app, &resp);
@@ -1461,6 +1461,34 @@ fn finish_canvas_frame(finish: CanvasFinish<'_>, out: egui::scroll_area::ScrollA
     }
 }
 
+/// The phone's Web Layout sheet runs to the foot of the view, not just to the end of the text.
+fn paint_phone_web_sheet(app: &WordApp, painter: &egui::Painter, clip: Rect, geo: &Geometry, content_origin: Pos2) {
+    if !app.phone || app.session.view.mode != wordcraft_layout::ViewMode::Web {
+        return;
+    }
+    let sheet_bottom = geo.rects.last().map_or(content_origin.y, |r| content_origin.y + r.bottom());
+    if let Some(fill) = web_sheet_fill(clip, sheet_bottom) {
+        let paper = if app.session.view.dark_mode { Color32::from_gray(wordcraft_render::DARK_PAPER) } else { Color32::WHITE };
+        painter.rect_filled(fill, 0.0, paper);
+    }
+}
+
+/// Phone: a handle under the start and the end of a text selection (a drag moves that end).
+/// Returns the handle centres and the edge points they grab.
+fn paint_phone_selection_grips(app: &WordApp, painter: &egui::Painter, t: &Tokens, screen_rects: &[Rect]) -> Option<([Pos2; 2], [Pos2; 2])> {
+    match (app.phone, screen_rects.first(), screen_rects.last()) {
+        (true, Some(first), Some(last)) if !app.session.sel.is_collapsed() => {
+            let handles = [pos2(first.min.x, first.max.y + HANDLE_R), pos2(last.max.x, last.max.y + HANDLE_R)];
+            let edges = [pos2(first.min.x, first.center().y), pos2(last.max.x, last.center().y)];
+            for h in handles {
+                painter.circle_filled(h, HANDLE_R, t.accent);
+            }
+            Some((handles, edges))
+        }
+        _ => None,
+    }
+}
+
 /// Lays out and paints the document pages for print, Read and Web views, settles viewports, draw
 /// rulers and overlays, anchors zoom and scrolling, and routes pointer, selection, IME and caret
 /// input.
@@ -1489,14 +1517,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         let ppp = ui.ctx().pixels_per_point();
         let max_tex = ui.ctx().input(|i| i.max_texture_side).min(wordcraft_render::MAX_SIDE as usize).max(1) as f32;
         let content_origin = ui.min_rect().min;
-        // The phone's Web Layout sheet runs to the foot of the view, not just to the end of the text.
-        if app.phone && app.session.view.mode == wordcraft_layout::ViewMode::Web {
-            let sheet_bottom = geo.rects.last().map_or(content_origin.y, |r| content_origin.y + r.bottom());
-            if let Some(fill) = web_sheet_fill(clip, sheet_bottom) {
-                let paper = if app.session.view.dark_mode { Color32::from_gray(wordcraft_render::DARK_PAPER) } else { Color32::WHITE };
-                painter.rect_filled(fill, 0.0, paper);
-            }
-        }
+        paint_phone_web_sheet(app, &painter, clip, &geo, content_origin);
         let hidden = app.canvas.dragged_off_page();
         let page_view = view_key(app, dim_body, hidden.as_ref().map(|(_, p)| p));
         let t0 = crate::now_ms();
@@ -1595,18 +1616,7 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
         // document-first line may be scrolled offscreen; using it would pin the toolbar to an
         // old screen position unrelated to the visible selection.
         app.canvas.mini_anchor = crate::mini_toolbar::visible_anchor(screen_rects.clone(), visible_clip);
-        // Phone: a handle under the start and the end of a text selection (a drag moves that end).
-        let grips = match (app.phone, screen_rects.first(), screen_rects.last()) {
-            (true, Some(first), Some(last)) if !app.session.sel.is_collapsed() => {
-                let handles = [pos2(first.min.x, first.max.y + HANDLE_R), pos2(last.max.x, last.max.y + HANDLE_R)];
-                let edges = [pos2(first.min.x, first.center().y), pos2(last.max.x, last.center().y)];
-                for h in handles {
-                    painter.circle_filled(h, HANDLE_R, t.accent);
-                }
-                Some((handles, edges))
-            }
-            _ => None,
-        };
+        let grips = paint_phone_selection_grips(app, &painter, &t, &screen_rects);
         app.canvas.sel_handles = grips.map(|g| g.0);
         app.canvas.sel_edges = grips.map(|g| g.1);
         app.canvas.sel_bounds = grips.and_then(|_| screen_rects.iter().copied().reduce(|a, b| a.union(b)));

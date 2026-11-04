@@ -313,7 +313,7 @@ pub(crate) fn show(app: &mut WordApp, ctx: &egui::Context) {
     let mut done: Option<Option<PathBuf>> = None;
     if app.phone {
         // Update 27: on the phone a full-width bottom sheet, its OK and Cancel pinned at the bottom.
-        let (close, _) = crate::phone::dialog_sheet(ctx, egui::Id::new("builtin_file_browser"), b.title(), |ui| {
+        let (close, _) = crate::phone::dialog_sheet(ctx, egui::Id::unique("builtin_file_browser"), b.title(), |ui| {
             done = body(ui, &mut b, &t);
             done.is_some()
         });
@@ -377,7 +377,7 @@ fn name_edit(ui: &mut Ui, b: &mut FileBrowser, width: f32, label: egui::Id) {
 /// The file type list.
 fn type_list(ui: &mut Ui, b: &mut FileBrowser, width: f32) {
     let current = b.filters.get(b.filter).map(|(l, _)| tl!(l.as_str()).to_string()).unwrap_or_default();
-    egui::ComboBox::from_id_salt("builtin_file_browser_type")
+    craft_ui::ComboBox::from_id_salt("builtin_file_browser_type")
         .selected_text(current)
         .width(width)
         .show_ui(ui, |ui| {
@@ -654,7 +654,7 @@ mod tests {
             );
             harness.run_steps(4);
             assert_eq!(harness.state().phone, phone, "a {w} pt screen");
-            let area = harness.ctx.memory(|m| m.area_rect(egui::Id::new("builtin_file_browser"))).expect("the browser is drawn");
+            let area = harness.ctx.memory(|m| m.area_rect(egui::Id::unique("builtin_file_browser"))).expect("the browser is drawn");
             if phone {
                 assert!((area.width() - w).abs() < 1.0, "the sheet is the full width: {area:?}");
                 let cancel = harness.get_by_label("Cancel").rect();

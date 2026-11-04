@@ -112,7 +112,7 @@ fn icon_button(ui: &mut Ui, m: Md, icon: &str, tip: &str) -> egui::Response {
     // The name a screen reader or a test finds the button by is its tooltip.
     let name = crate::tl!(tip).to_string();
     let enabled = ui.is_enabled();
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name.clone()));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, name.clone()));
     resp.on_hover_text(name)
 }
 
@@ -191,7 +191,7 @@ pub fn status_line(app: &WordApp, ui: &mut Ui) {
     let screen = ctx.content_rect();
     let width = (screen.width() - 2.0 * FLOAT_GAP).max(0.0);
     let pos = Pos2::new(screen.left() + FLOAT_GAP, screen.top() + APP_BAR_H + 8.0);
-    egui::Area::new(egui::Id::new("phone_status")).fixed_pos(pos).order(Order::Foreground).interactable(false).show(&ctx, |ui| {
+    egui::Area::new(egui::Id::unique("phone_status")).fixed_pos(pos).order(Order::Foreground).interactable(false).show(&ctx, |ui| {
         egui::Frame::NONE.fill(m.surface_high).corner_radius(CornerRadius::same(8)).shadow(elevation()).inner_margin(Margin::symmetric(12, 8)).show(
             ui,
             |ui| {
@@ -389,12 +389,12 @@ pub fn sheet_open(ctx: &Context) -> bool {
 }
 
 fn menu_id() -> egui::Id {
-    egui::Id::new("phone_menu_tab")
+    egui::Id::unique("phone_menu_tab")
 }
 
 /// Where the open tab sheet's panel was drawn last. It lets a press outside it be told apart.
 fn sheet_rect_id() -> egui::Id {
-    egui::Id::new("phone_menu_rect")
+    egui::Id::unique("phone_menu_rect")
 }
 
 /// Whether a phone menu owns the pointer this frame. An open sheet takes its own area, and a press
@@ -403,7 +403,7 @@ fn sheet_rect_id() -> egui::Id {
 /// the gesture (no caret, no selection, no scroll) until the pointer is released.
 pub(crate) fn take_pointer(ctx: &Context, selection_menu_open: bool, outside_selection_menu: bool) -> bool {
     let (down, pressed, pos) = ctx.input(|i| (i.pointer.primary_down(), i.pointer.primary_pressed(), i.pointer.latest_pos()));
-    let gesture = egui::Id::new("phone_gesture_taken");
+    let gesture = egui::Id::unique("phone_gesture_taken");
     if !down {
         ctx.data_mut(|d| d.remove::<bool>(gesture));
         return false;
@@ -433,7 +433,7 @@ pub(crate) fn open_menu(app: &mut WordApp, ctx: &Context, tab: usize) {
 /// Whether the on-screen keyboard has just come up (it was down on the last frame).
 fn keyboard_rising(ctx: &Context) -> bool {
     let up = keyboard_up_now(ctx);
-    let id = egui::Id::new("phone_keyboard_was_up");
+    let id = egui::Id::unique("phone_keyboard_was_up");
     let was_up = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     ctx.data_mut(|d| d.insert_temp(id, up));
     up && !was_up
@@ -442,7 +442,7 @@ fn keyboard_rising(ctx: &Context) -> bool {
 /// Whether the on-screen keyboard is up: the window has shrunk well below the tallest it has been.
 fn keyboard_up_now(ctx: &Context) -> bool {
     let h = ctx.content_rect().height();
-    let id = egui::Id::new("phone_tallest_height");
+    let id = egui::Id::unique("phone_tallest_height");
     let tallest = ctx.data_mut(|d| {
         let m = d.get_temp::<f32>(id).unwrap_or(0.0).max(h);
         d.insert_temp(id, m);
@@ -525,7 +525,7 @@ pub fn bottom_bar(app: &mut WordApp, ui: &mut Ui) {
     }
     let width = (ctx.content_rect().width() - 2.0 * FLOAT_GAP).max(0.0);
     let pos = Pos2::new(ctx.content_rect().left() + FLOAT_GAP, bar_top(&ctx));
-    egui::Area::new(egui::Id::new("phone_quick_bar")).fixed_pos(pos).order(Order::Foreground).show(&ctx, |ui| {
+    egui::Area::new(egui::Id::unique("phone_quick_bar")).fixed_pos(pos).order(Order::Foreground).show(&ctx, |ui| {
         egui::Frame::NONE
             .fill(m.surface_high)
             .corner_radius(CornerRadius::same(PILL_R))
@@ -537,7 +537,7 @@ pub fn bottom_bar(app: &mut WordApp, ui: &mut Ui) {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     let middle = (width - 16.0 - ICON_BTN - 8.0).max(ICON_BTN);
                     // Centred when the groups fit: the last frame's width says how far to indent.
-                    let used_id = egui::Id::new("phone_bar_used");
+                    let used_id = egui::Id::unique("phone_bar_used");
                     let used = ctx.data(|d| d.get_temp::<f32>(used_id)).unwrap_or(0.0);
                     egui::ScrollArea::horizontal()
                         .id_salt("quick_bar_items")
@@ -622,7 +622,7 @@ pub fn back_step(ctx: &Context) {
 
 /// Opens the phone selection menu at its top list (not in More).
 pub fn reset_context_more(ctx: &Context) {
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new("phone_ctx_more"), false));
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("phone_ctx_more"), false));
 }
 
 /// The selection menu on a phone (`canvas::context_menu`): for a misspelt word a strip of
@@ -631,7 +631,7 @@ pub fn reset_context_more(ctx: &Context) {
 pub fn context_menu(app: &mut WordApp, ui: &mut Ui) {
     let m = md(ui.ctx());
     let ctx = ui.ctx().clone();
-    let more_id = egui::Id::new("phone_ctx_more");
+    let more_id = egui::Id::unique("phone_ctx_more");
     let in_more = ctx.data(|d| d.get_temp::<bool>(more_id)).unwrap_or(false);
     ui.set_width(260.0);
     // No gap between rows: the 48 pt rows alone set the pitch.
@@ -799,7 +799,7 @@ fn compact_tab_bar(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context, bar: &[
 pub fn compact_context_menu(app: &mut WordApp, ui: &mut Ui) {
     let m = md(ui.ctx());
     let ctx = ui.ctx().clone();
-    let more_id = egui::Id::new("phone_ctx_more");
+    let more_id = egui::Id::unique("phone_ctx_more");
     let in_more = ctx.data(|d| d.get_temp::<bool>(more_id)).unwrap_or(false);
     let spelling = app.canvas.context_issue.as_ref().is_some_and(|i| i.get("kind").and_then(|k| k.as_str()) == Some("spelling"));
     if in_more || spelling {
@@ -987,7 +987,7 @@ enum CommentTarget {
 }
 
 fn target_id() -> egui::Id {
-    egui::Id::new("phone_comment_target")
+    egui::Id::unique("phone_comment_target")
 }
 
 fn comment_target(ctx: &Context) -> CommentTarget {
@@ -998,8 +998,8 @@ fn comment_target(ctx: &Context) -> CommentTarget {
 fn comment_field(ctx: &Context, target: CommentTarget) {
     ctx.data_mut(|d| {
         d.insert_temp(target_id(), target);
-        d.insert_temp(egui::Id::new("phone_comment_text"), String::new());
-        d.insert_temp(egui::Id::new("phone_comment_focus"), true);
+        d.insert_temp(egui::Id::unique("phone_comment_text"), String::new());
+        d.insert_temp(egui::Id::unique("phone_comment_focus"), true);
     });
     set_sub(ctx, Some(Sub::CommentInput));
 }
@@ -1017,7 +1017,7 @@ fn sub_back(ctx: &Context) {
 /// in Word. It fires on the frame after the tap, when the caret has moved. Taps on the sheet, the
 /// top bar and the floating bar do not count.
 fn tap_into_comment(app: &WordApp, ctx: &Context) -> bool {
-    let id = egui::Id::new("phone_tap_pending");
+    let id = egui::Id::unique("phone_tap_pending");
     let pending = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     // Read the layout before `ctx.input`: a context lock taken inside another one panics on the web build.
     let (page_top, page_bottom) = (ctx.content_rect().top() + APP_BAR_H, bar_top(ctx));
@@ -1034,7 +1034,7 @@ fn tap_into_comment(app: &WordApp, ctx: &Context) -> bool {
 }
 
 fn sub_id() -> egui::Id {
-    egui::Id::new("phone_format_sub")
+    egui::Id::unique("phone_format_sub")
 }
 
 fn sub(ctx: &Context) -> Option<Sub> {
@@ -1283,9 +1283,9 @@ fn comments_page(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context) {
 /// The comment field: a multiline box with the keyboard, and Cancel and Add. A new comment goes on
 /// the selection and closes the sheet; a reply goes back to the comment list.
 fn comment_input_page(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context) {
-    let buf_id = egui::Id::new("phone_comment_text");
+    let buf_id = egui::Id::unique("phone_comment_text");
     let mut text: String = ctx.data(|d| d.get_temp(buf_id)).unwrap_or_default();
-    let focus = ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new("phone_comment_focus"))).unwrap_or(false);
+    let focus = ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::unique("phone_comment_focus"))).unwrap_or(false);
     let field = crate::phone::compact_field(ui, |ui| {
         ui.add(egui::TextEdit::multiline(&mut text).desired_rows(4).desired_width(f32::INFINITY).hint_text(crate::tl!("Write a comment").to_string()))
     });
@@ -1398,7 +1398,7 @@ fn alt_text_field(app: &mut WordApp, ui: &mut Ui) {
         Some((_, wordcraft_doc::para::InlineObject::Image { alt, .. })) => alt,
         _ => String::new(),
     };
-    let id = egui::Id::new("phone_alt_text_buffer");
+    let id = egui::Id::unique("phone_alt_text_buffer");
     let (seen, mut buf): (String, String) = ui.data(|d| d.get_temp(id)).unwrap_or_else(|| (current.clone(), current.clone()));
     if seen != current {
         buf = current.clone();
@@ -1654,7 +1654,7 @@ fn row_chevron(id: &str) -> bool {
 /// at 16 pt, a chevron for rows that open more, and a state layer on hover and press.
 pub(crate) fn list_row(ui: &mut Ui, m: Md, label: &str, icon: &str, chevron: bool) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), LIST_ROW_H), Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, crate::tl!(label)));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, crate::tl!(label)));
     paint_state(ui, r, 0, m.on_surface, &resp);
     let mid = r.center().y;
     icons::paint(ui.painter(), Rect::from_center_size(Pos2::new(r.left() + 36.0, mid), vec2(24.0, 24.0)), icon, m.on_surface_variant, m.primary);
@@ -1672,7 +1672,7 @@ pub(crate) fn list_row(ui: &mut Ui, m: Md, label: &str, icon: &str, chevron: boo
 /// File pages' export formats. A state layer shows on hover and press.
 pub(crate) fn text_row(ui: &mut Ui, m: Md, label: &str) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), LIST_ROW_H), Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, crate::tl!(label)));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, crate::tl!(label)));
     paint_state(ui, r, 0, m.on_surface, &resp);
     ui.painter().text(Pos2::new(r.left() + 16.0, r.center().y), Align2::LEFT_CENTER, crate::tl!(label), regular(16.0), m.on_surface);
     resp
@@ -1735,15 +1735,15 @@ const SHEET_R: u8 = 28;
 const SHEET_FULL: f32 = 0.85;
 
 fn sheet_height_key() -> egui::Id {
-    egui::Id::new("phone_dialog_sheet_h")
+    egui::Id::unique("phone_dialog_sheet_h")
 }
 
 fn sheet_footer_key() -> egui::Id {
-    egui::Id::new("phone_dialog_footer")
+    egui::Id::unique("phone_dialog_footer")
 }
 
 fn sheet_wanted_key() -> egui::Id {
-    egui::Id::new("phone_dialog_footer_wanted")
+    egui::Id::unique("phone_dialog_footer_wanted")
 }
 
 /// The sheet's pinned action row this frame, or None when no sheet has one open. Asking for it also
@@ -1768,7 +1768,7 @@ pub(crate) fn touch_style(ui: &mut Ui) {
 /// A single-line text field: 48 pt tall on the phone, where Android asks for that touch target
 /// (egui's TextEdit ignores `interact_size`, so the height is its `min_size`). Unchanged on desktop.
 pub(crate) fn touch_edit<'t>(ui: &Ui, edit: egui::TextEdit<'t>) -> egui::TextEdit<'t> {
-    if active(ui.ctx()) { edit.min_size(vec2(0.0, TOUCH_H)).vertical_align(egui::Align::Center) } else { edit }
+    if active(ui.ctx()) { edit.min_size(vec2(0.0, TOUCH_H)).align(egui::Align2::LEFT_CENTER) } else { edit }
 }
 
 /// Runs `add` (a plain text field) on the phone with the pre-0.37 text field sizing: no height floor

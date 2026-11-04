@@ -253,7 +253,7 @@ pub fn show_alert(app: &mut WordApp, ctx: &egui::Context) {
         sorted.sort_by_key(|(_, v)| *v);
         let labels: Vec<&str> = sorted.iter().map(|(l, _)| tl!(l)).collect();
         let primary = labels.len().saturating_sub(1);
-        let (close, _) = crate::phone::dialog_sheet(ctx, egui::Id::new("zotero-alert"), "Zotero", |ui| {
+        let (close, _) = crate::phone::dialog_sheet(ctx, egui::Id::unique("zotero-alert"), "Zotero", |ui| {
             ui.label(a.text.trim_end());
             ui.add_space(8.0);
             if let Some(Some(i)) = crate::dialogs::footer_row(ui, &labels, primary, true) {
@@ -313,7 +313,7 @@ mod tests {
             );
             harness.run_steps(4);
             assert_eq!(harness.state().phone, phone, "a {w} pt screen");
-            let area = harness.ctx.memory(|m| m.area_rect(egui::Id::new("zotero-alert"))).expect("the alert is drawn");
+            let area = harness.ctx.memory(|m| m.area_rect(egui::Id::unique("zotero-alert"))).expect("the alert is drawn");
             if phone {
                 assert!((area.width() - w).abs() < 1.0, "the sheet is the full width: {area:?}");
                 let cancel = harness.get_by_label("Cancel").rect();
