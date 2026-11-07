@@ -792,6 +792,10 @@ fn phone_proofing_has_no_dictionaries_section() {
         }
         h.run_steps(4);
         assert!(h.query_all_by_label("Custom dictionary").next().is_some(), "{width}: Proofing is open");
+        // Upstream moved the Dictionaries section to the Language pane (CP4.3); the phone has no
+        // folder of Hunspell files to point at, so it is shown on the desktop only.
+        h.state_mut().ui.options_pane = "language".to_string();
+        h.run_steps(4);
         let folder = h.query_all_by_label("Dictionaries folder:").next().is_some();
         assert_eq!(folder, shown, "{width} pt: the Dictionaries folder field");
     }

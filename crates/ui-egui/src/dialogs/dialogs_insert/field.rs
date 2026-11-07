@@ -270,7 +270,7 @@ pub(super) fn field_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FieldForm) -> boo
     }
     let columns = |ui: &mut Ui| {
         // Left: category and field names.
-        ui.vertical(|ui| {
+        crate::rtl::vertical(ui, |ui| {
             if !phone {
                 ui.set_width(200.0);
             }
@@ -299,7 +299,7 @@ pub(super) fn field_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FieldForm) -> boo
         });
         ui.add_space(14.0);
         // Right: the field's options, or its code.
-        ui.vertical(|ui| {
+        crate::rtl::vertical(ui, |ui| {
             ui.label(egui::RichText::new(tl!("Field properties")).font(semibold(12.5)));
             if let Some((_, _, desc)) = FIELDS.iter().find(|(n, _, _)| *n == f.name) {
                 ui.label(egui::RichText::new(format!("{} {}", tl!("Description:"), tl!(desc))).small().color(t.text_dim));
@@ -321,7 +321,7 @@ pub(super) fn field_ui(app: &mut WordApp, ui: &mut Ui, f: &mut FieldForm) -> boo
     if phone {
         ui.vertical(columns);
     } else {
-        ui.horizontal_top(columns);
+        crate::rtl::horizontal_top(ui, columns);
     }
     ui.add_space(6.0);
     ui.horizontal(|ui| {
