@@ -43,6 +43,7 @@ listed one by one; they only apply in the phone layout, except for those listed 
 | File | What changed |
 |---|---|
 | `crates/doc/src/math_linear.rs` | One condition rewritten to satisfy a newer clippy lint (`nonminimal_bool`). Same logic. |
+| `crates/engine/src/cmd/insert/items.rs` | One condition rewritten to satisfy a newer clippy lint (`nonminimal_bool`). Same logic. |
 | `crates/proof/src/affix.rs` | One `match` arm restructured for a clippy lint (collapsible match). Same logic. |
 | `Cargo.toml` | The workspace excludes a stray tool folder (`apps/.claude-mpm`) so it isn't treated as a crate. |
 
