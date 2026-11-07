@@ -10,7 +10,7 @@ impl WordApp {
     /// whatever handed it over (the command line, a macOS open event, a drop). Returns the message.
     pub fn report_open_failure(&mut self, path: &str, error: &str) -> String {
         log::warn!("{path}: {error}");
-        let msg = crate::i18n::fmt(crate::tl!("Couldn't open {path}: {error}"), &[("path", path), ("error", error)]);
+        let msg = crate::i18n::fmt(crate::tl!("Couldn't open {path}: {error}"), &[("path", &crate::i18n::isolate_path(path)), ("error", error)]);
         self.status(msg.clone());
         msg
     }
@@ -74,6 +74,10 @@ impl WordApp {
             // A dialog sheet takes the bottom of the screen: the formatting bar stays away while it is open.
             if self.formatting_bar_shown() {
                 phone::bottom_bar(self, ui);
+            }
+            // Spelling & Grammar: the proofing sheet takes the keyboard, so the page gives it up first.
+            if self.spelling_review.is_some() {
+                crate::proofing_pane::give_up_keyboard(self, ctx);
             }
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
                 canvas::show(self, ui);

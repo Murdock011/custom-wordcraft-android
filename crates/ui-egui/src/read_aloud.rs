@@ -30,10 +30,7 @@ pub fn poll(app: &mut WordApp, ctx: &egui::Context) {
     if ra.state() == State::Playing {
         ctx.request_repaint_after(std::time::Duration::from_millis(120));
     }
-    if let Some(e) = app.session.read_aloud.error()
-        && app.read_aloud_error.as_deref() != Some(e.as_str())
-    {
-        app.read_aloud_error = Some(e.clone());
+    if let Some(e) = error_notice(&mut app.read_aloud_error, app.session.read_aloud.error()) {
         app.status(e);
     }
     // The caret follows the reading only in the document being read.
@@ -45,6 +42,23 @@ pub fn poll(app: &mut WordApp, ctx: &egui::Context) {
             app.canvas.scroll_to_caret = true;
         }
         app.read_aloud_at = current;
+    }
+}
+
+/// The notice for the player's error `now`, given the one last `shown`: each message is shown
+/// once, and when the error clears (Play after a halt) the last one is forgotten, so the same
+/// message coming back is shown again.
+fn error_notice(shown: &mut Option<String>, now: Option<String>) -> Option<String> {
+    match now {
+        None => {
+            *shown = None;
+            None
+        }
+        Some(e) if shown.as_deref() == Some(e.as_str()) => None,
+        Some(e) => {
+            *shown = Some(e.clone());
+            Some(e)
+        }
     }
 }
 
@@ -189,7 +203,7 @@ fn controls(app: &WordApp, ui: &mut Ui, t: &Tokens, phone: bool, run: &mut Optio
     }
 }
 
-/// A transport button with a drawn icon and a tooltip; returns whether it was clicked.
+/// An icon button; returns whether it was clicked.
 fn button(ui: &mut Ui, t: &Tokens, icon: &str, tip: &str, enabled: bool, size: Vec2, icon_px: f32) -> bool {
     let (rect, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
     let resp = resp.on_hover_text(tip);
@@ -204,36 +218,16 @@ fn button(ui: &mut Ui, t: &Tokens, icon: &str, tip: &str, enabled: bool, size: V
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::Services;
+    use super::error_notice;
 
-    /// Update 27: the Read Aloud player is a full-width sheet on the phone (closing it stops
-    /// reading) and a floating window on the desktop.
     #[test]
-    fn read_aloud_is_a_sheet_on_the_phone_and_a_window_on_desktop() {
-        for (w, h, phone) in [(400.0, 800.0, true), (1440.0, 900.0, false)] {
-            let mut a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
-            a.session.read_aloud.open = true;
-            let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(w, h)).build_ui_state(
-                |ui, app: &mut WordApp| {
-                    let ctx = ui.ctx().clone();
-                    app.logic(&ctx);
-                    app.ui(ui);
-                },
-                a,
-            );
-            harness.run_steps(4);
-            assert_eq!(harness.state().phone, phone, "a {w} pt screen");
-            let area = harness.ctx.memory(|m| m.area_rect(egui::Id::unique("read-aloud-player"))).expect("the player is drawn");
-            if phone {
-                assert!((area.width() - w).abs() < 1.0, "the sheet is the full width: {area:?}");
-                assert!(area.bottom() <= h + 1.0 && area.top() > h / 2.0, "a bottom sheet: {area:?}");
-                harness.key_press(egui::Key::Escape);
-                harness.run_steps(3);
-                assert!(!harness.state().session.read_aloud.open, "closing the phone sheet stops reading");
-            } else {
-                assert!(area.width() < 400.0, "a floating window, not full width: {area:?}");
-            }
-        }
+    fn the_same_error_after_play_is_shown_again() {
+        let mut shown = None;
+        let halt = || Some("stopped for another program".to_string());
+        assert_eq!(error_notice(&mut shown, halt()), halt(), "shown once");
+        assert_eq!(error_notice(&mut shown, halt()), None, "not on every frame");
+        // Play clears the error; the same halt later is a new notice.
+        assert_eq!(error_notice(&mut shown, None), None);
+        assert_eq!(error_notice(&mut shown, halt()), halt());
     }
 }

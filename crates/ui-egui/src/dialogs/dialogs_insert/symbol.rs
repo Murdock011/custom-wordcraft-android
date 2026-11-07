@@ -410,6 +410,7 @@ pub(super) fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> b
             }
         });
         ui.add_space(6.0);
+        // The phone lays the code row out left to right and wraps, so "from Unicode (hex)" is not cut off.
         let code_row = |ui: &mut Ui, f: &mut SymbolForm| {
             let name = f.selected.map(|c| format!("U+{:04X}", c as u32)).unwrap_or_default();
             ui.label(egui::RichText::new(name).font(semibold(12.0)));
@@ -422,12 +423,11 @@ pub(super) fn symbol_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm) -> b
                 }
             };
             if phone {
-                // Left to right and wrapping on the phone, so "from Unicode (hex)" is not cut off.
                 ui.label(tl!("Character code:"));
                 edit(ui, f);
                 ui.label(tl!("from Unicode (hex)"));
             } else {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.with_layout(crate::rtl::far_side(ui, egui::Align::Center), |ui| {
                     ui.label(tl!("from Unicode (hex)"));
                     edit(ui, f);
                     ui.label(tl!("Character code:"));
@@ -474,24 +474,28 @@ fn special_ui(app: &mut WordApp, ui: &mut Ui, f: &mut SymbolForm, insert: &mut O
             ui.style_mut().spacing.button_padding.x = 6.0;
         }
         let gap = if phone { 8.0 } else { 14.0 };
-        egui::Grid::new("special_grid").num_columns(3).striped(true).spacing(vec2(gap, 4.0)).show(ui, |ui| {
-            ui.label(egui::RichText::new(tl!("Character")).font(semibold(12.0)));
-            ui.label("");
-            ui.label(egui::RichText::new(tl!("Shortcut key:")).font(semibold(12.0)));
-            ui.end_row();
+        crate::rtl::Table::new("special_grid").columns(3).striped(true).spacing(vec2(gap, 4.0)).show(ui, |table| {
+            table.row(|r| {
+                r.cell(|ui| ui.label(egui::RichText::new(tl!("Character")).font(semibold(12.0))));
+                r.cell(|ui| ui.label(""));
+                r.cell(|ui| ui.label(egui::RichText::new(tl!("Shortcut key:")).font(semibold(12.0))));
+            });
             for (i, (name, c, cmd)) in SPECIAL.iter().enumerate() {
-                let shown = if c.is_whitespace() || matches!(*c, '\u{00AD}' | '\u{200B}' | '\u{2060}') { String::new() } else { c.to_string() };
-                ui.label(egui::RichText::new(shown).font(regular(15.0)).color(t.text));
-                let resp = ui.selectable_label(f.special == i, tl!(name));
-                if resp.clicked() {
-                    f.special = i;
-                }
-                if resp.double_clicked() {
-                    f.special = i;
-                    double = true;
-                }
-                ui.label(cmd.map(|id| crate::widgets::shortcut_text(app, id)).unwrap_or_default());
-                ui.end_row();
+                table.row(|r| {
+                    let shown = if c.is_whitespace() || matches!(*c, '\u{00AD}' | '\u{200B}' | '\u{2060}') { String::new() } else { c.to_string() };
+                    r.cell(|ui| ui.label(egui::RichText::new(shown).font(regular(15.0)).color(t.text)));
+                    r.cell(|ui| {
+                        let resp = ui.selectable_label(f.special == i, tl!(name));
+                        if resp.clicked() {
+                            f.special = i;
+                        }
+                        if resp.double_clicked() {
+                            f.special = i;
+                            double = true;
+                        }
+                    });
+                    r.cell(|ui| ui.label(cmd.map(|id| crate::widgets::shortcut_text(app, id)).unwrap_or_default()));
+                });
             }
         });
     });

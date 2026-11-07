@@ -106,8 +106,24 @@ pub fn phone_sheet(app: &mut WordApp, ctx: &egui::Context) {
         phone_body(app, ui, &mut form);
         false
     });
-    if !close {
+    if close {
+        // As a dialog does: the page takes the keyboard back, so typing goes on where it was.
+        app.canvas.want_focus = true;
+    } else {
         app.spelling_review = Some(form);
+    }
+}
+
+/// While the phone's proofing sheet is open the page gives up the keyboard, drawn before the page.
+/// The page holds egui focus otherwise, `output.ime` stays set, and the soft keyboard covers the
+/// sheet's buttons. A tap on "Change to:" takes focus for that field, which this leaves alone.
+pub fn give_up_keyboard(app: &mut WordApp, ctx: &egui::Context) {
+    app.canvas.want_focus = false;
+    app.canvas.focused = false;
+    if let Some((id, _)) = app.canvas.widget_id
+        && ctx.memory(|m| m.has_focus(id))
+    {
+        ctx.memory_mut(|m| m.surrender_focus(id));
     }
 }
 
@@ -478,6 +494,7 @@ mod tests {
     #[test]
     #[ignore = "offscreen visual review; requires a software or hardware graphics adapter"]
     fn spelling_review_dialog_preview() {
+        let _gpu = crate::table_resize::tests::gpu_turn();
         let mut a = app("The quick brwn fox.");
         a.run("review.spelling", json!({})).unwrap();
         let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1000.0, 700.0)).wgpu().build_ui_state(frame, a);

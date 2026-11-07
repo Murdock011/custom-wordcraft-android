@@ -740,6 +740,37 @@ fn phone_spelling_opens_the_proofing_sheet() {
     assert!(h.state().spelling_review.is_none(), "Close clears the state");
 }
 
+/// The proofing sheet takes the keyboard: the page gives up focus while it is open, so the soft
+/// keyboard (`output.ime`) stays down over its buttons. Its "Change to:" field takes the keyboard
+/// for itself, and Close hands the keyboard back to the page.
+#[test]
+fn phone_proofing_sheet_takes_the_keyboard() {
+    let mut a = app();
+    a.run("text.insert", json!({"text": "Thsi is wrng"})).unwrap();
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(412.0, 915.0)).build_ui_state(
+        |ui, app: &mut WordApp| {
+            let ctx = ui.ctx().clone();
+            app.logic(&ctx);
+            app.ui(ui);
+        },
+        a,
+    );
+    h.run_steps(3);
+    assert!(h.output().platform_output.ime.is_some(), "typing: the page holds the keyboard");
+    h.state_mut().run("review.spelling", json!({})).unwrap();
+    h.run_steps(3);
+    assert!(h.state().spelling_review.is_some(), "the proofing sheet is open");
+    assert!(h.output().platform_output.ime.is_none(), "the sheet hides the keyboard");
+    assert!(!h.state().canvas.focused, "the page gave up focus");
+    h.get_by_label("Change to:").click();
+    h.run_steps(3);
+    assert!(h.output().platform_output.ime.is_some(), "the Change to field takes the keyboard");
+    h.get_by_label("Close").click();
+    h.run_steps(3);
+    assert!(h.state().spelling_review.is_none(), "Close clears the state");
+    assert!(h.output().platform_output.ime.is_some() || h.state().canvas.focused, "the page takes the keyboard back");
+}
+
 /// The phone's Options › Proofing has no Dictionaries section: a phone has no folder of Hunspell
 /// files to point at. The desktop keeps it.
 #[test]
@@ -761,6 +792,10 @@ fn phone_proofing_has_no_dictionaries_section() {
         }
         h.run_steps(4);
         assert!(h.query_all_by_label("Custom dictionary").next().is_some(), "{width}: Proofing is open");
+        // Upstream moved the Dictionaries section to the Language pane (CP4.3); the phone has no
+        // folder of Hunspell files to point at, so it is shown on the desktop only.
+        h.state_mut().ui.options_pane = "language".to_string();
+        h.run_steps(4);
         let folder = h.query_all_by_label("Dictionaries folder:").next().is_some();
         assert_eq!(folder, shown, "{width} pt: the Dictionaries folder field");
     }

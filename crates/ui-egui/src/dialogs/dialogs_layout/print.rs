@@ -50,7 +50,7 @@ pub(super) fn envelopes_ui(app: &mut WordApp, ui: &mut Ui, f: &mut EnvelopeForm)
     let (mut add, mut new, mut cancel) = (false, false, false);
     let pinned = crate::dialogs::footer_single(ui, tl!("Cancel"));
     ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.with_layout(crate::rtl::far_side(ui, egui::Align::Center), |ui| {
             cancel =
                 (pinned.is_none() && ui.button(tl!("Cancel")).clicked()) || pinned == Some(true) || ui.input(|i| i.key_pressed(egui::Key::Escape));
             new = ui.add_enabled(ready, egui::Button::new(tl!("New Document"))).clicked();

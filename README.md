@@ -30,7 +30,7 @@ recovery after the app is killed.
 The few changes it makes below the interface are listed, with the reason for each, in
 [docs/ENGINE-CHANGES.md](docs/ENGINE-CHANGES.md). The fork keeps the original project's history,
 so newer WordCraft versions can be merged in; see [docs/UPDATING.md](docs/UPDATING.md). It is
-currently based on WordCraft engine **0.15.0**.
+currently based on WordCraft engine **0.16.0**.
 
 ## Download
 
