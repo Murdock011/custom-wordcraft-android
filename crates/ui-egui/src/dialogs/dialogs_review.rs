@@ -412,9 +412,12 @@ fn autocorrect_ui(app: &mut WordApp, ui: &mut Ui, f: &mut AutoCorrectForm) -> bo
     if crate::phone::active(ui.ctx()) {
         ui.horizontal_wrapped(|ui| tab_row(ui, f));
     } else {
-        ui.horizontal(|ui| tab_row(ui, f));
+        let names = [tl!("AutoCorrect").to_string(), tl!("AutoFormat As You Type").to_string(), tl!("Math AutoCorrect").to_string()];
+        if let Some(k) = crate::widgets::dialog_tabs(ui, &names, f.tab as usize) {
+            f.tab = k as u8;
+        }
     }
-    ui.separator();
+    ui.add_space(6.0);
     match f.tab {
         0 => autocorrect_tab(app, ui, f),
         1 => {

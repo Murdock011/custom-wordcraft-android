@@ -52,6 +52,8 @@ Phone builds embed [craft-i18n](https://github.com/storytold/craft-i18n) at the 
   keep edits to upstream's shared files to small hooks.
 - Merge upstream often: a few weeks of changes conflict far less than a few months.
 
+On 2026-11-13 the fork was merged with upstream v0.18.1 (from v0.16.0). The conflicts were in `Cargo.toml`, `README.md` and `crates/ui-egui` (`backstage.rs`, `canvas.rs`, `colors.rs`, `dialogs.rs`, `options.rs`, the Symbol, AutoCorrect and Paragraph dialogs, and tests). Upstream's new `dialog_tabs` widget replaced the phone's tab rows only where they still fit; the phone's Backstage got upstream's #5282 scroll fix. A shallow clone gives a wrong merge base: fetch the full history first.
+
 On 2026-10-28 the fork was merged with upstream v0.11.0; the conflicts were in `ATTRIBUTION.md`, `apps/wordcraft-web/Cargo.toml`, `crates/ui-egui/src/canvas.rs`, `crates/ui-egui/src/dialogs.rs` and `crates/ui-egui/src/lib.rs`.
 
 The vendored egui and egui-winit in `vendor/` (IME patches, see their `LICENSE-NOTE.md`) must be re-vendored from the new versions, or removed together with their `[patch.crates-io]` entries, whenever upstream bumps egui.
