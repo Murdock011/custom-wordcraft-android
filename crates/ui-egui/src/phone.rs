@@ -14,8 +14,15 @@ mod tiles;
 
 /// Windows narrower than this (points) get the phone layout. A phone held upright is about 390 pt.
 pub const MAX_WIDTH: f32 = 600.0;
-/// Height of the top app bar (Material's small app bar).
+/// Height of the top app bar (Material's small app bar), and in a window under 500 pt tall (a phone
+/// turned sideways), where the page needs the room.
 const APP_BAR_H: f32 = 64.0;
+const APP_BAR_H_SHORT: f32 = 48.0;
+
+/// The top bar's height in this window.
+fn app_bar_h(ctx: &Context) -> f32 {
+    if ctx.content_rect().height() < 500.0 { APP_BAR_H_SHORT } else { APP_BAR_H }
+}
 /// A Material icon button: 48 pt, the platform's touch target.
 const ICON_BTN: f32 = 48.0;
 /// The height of a list row (`list_row`): the Android minimum touch target, so it cannot go lower.
@@ -129,24 +136,28 @@ fn text_button(ui: &mut Ui, m: Md, label: &str, color: Color32, min_w: f32) -> e
     resp
 }
 
-/// The top app bar: File (the Backstage), the document's name, and undo, redo and search.
+/// The top app bar: File (the Backstage), the document's name (with ` •` while it has unsaved
+/// changes), then Undo, Redo and Save. Search is in the More sheet. In Read mode the page turns and
+/// Edit Document take the place of Undo, Redo and Save.
 pub fn top_bar(app: &mut WordApp, ui: &mut Ui) {
     let m = md(ui.ctx());
-    let title = if app.has_document() { app.title_stem() } else { "WordCraft".to_string() };
-    Panel::top("phone_top_bar").exact_size(APP_BAR_H).frame(egui::Frame::NONE.fill(m.surface).inner_margin(Margin::symmetric(4, 0))).show(ui, |ui| {
+    let title = if app.has_document() {
+        let stem = app.title_stem();
+        if app.session.dirty { format!("{stem} •") } else { stem }
+    } else {
+        "WordCraft".to_string()
+    };
+    let height = app_bar_h(ui.ctx());
+    Panel::top("phone_top_bar").exact_size(height).frame(egui::Frame::NONE.fill(m.surface).inner_margin(Margin::symmetric(4, 0))).show(ui, |ui| {
         ui.horizontal_centered(|ui| {
             if icon_button(ui, m, "file", "File").clicked() {
                 let _ = app.run("ui.backstage", json!({"value": true}));
             }
-            // The name gets what the icons on the right leave, and is cut short. Read mode has four
-            // icons there (Search, Edit Document, Next, Previous), editing three (Search, Redo, Undo).
-            let icons_right = if app.session.view.read_mode { 4.0 } else { 3.0 };
-            let name_w = (ui.available_width() - icons_right * ICON_BTN - 8.0).max(0.0);
-            ui.add_sized(vec2(name_w, ICON_BTN), egui::Label::new(egui::RichText::new(title).font(medium(20.0)).color(m.on_surface)).truncate());
+            // The name gets what the icons on the right leave, and is cut short. Three icons are on
+            // the right: Undo, Redo and Save, or in Read mode Edit Document, Next and Previous.
+            let name_w = (ui.available_width() - 3.0 * ICON_BTN - 8.0).max(0.0);
+            ui.add_sized(vec2(name_w, ICON_BTN), egui::Label::new(egui::RichText::new(title).font(medium(18.0)).color(m.on_surface)).truncate());
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                if icon_button(ui, m, "find", "Search").clicked() {
-                    let _ = app.run("ui.dialog", json!({"name": "commands"}));
-                }
                 if app.session.view.read_mode {
                     // Reading: the page turns and Edit Document take the place of Undo and Redo.
                     if icon_button(ui, m, "printLayout", "Edit Document").clicked() {
@@ -164,12 +175,23 @@ pub fn top_bar(app: &mut WordApp, ui: &mut Ui) {
                         }
                     });
                 } else {
-                    if icon_button(ui, m, "redo", "Redo").clicked() {
-                        run(app, "edit.redo");
-                    }
-                    if icon_button(ui, m, "undo", "Undo").clicked() {
-                        run(app, "edit.undo");
-                    }
+                    let can_save = app.has_document() && crate::widgets::enabled(app, "file.save");
+                    ui.add_enabled_ui(can_save, |ui| {
+                        if icon_button(ui, m, "save", "Save").clicked() {
+                            run(app, "file.save");
+                        }
+                    });
+                    let (undo, redo) = (app.session.can_undo(), app.session.can_redo());
+                    ui.add_enabled_ui(redo, |ui| {
+                        if icon_button(ui, m, "redo", "Redo").clicked() {
+                            run(app, "edit.redo");
+                        }
+                    });
+                    ui.add_enabled_ui(undo, |ui| {
+                        if icon_button(ui, m, "undo", "Undo").clicked() {
+                            run(app, "edit.undo");
+                        }
+                    });
                 }
             });
         });
@@ -192,7 +214,7 @@ pub fn status_line(app: &WordApp, ui: &mut Ui) {
     let m = md(&ctx);
     let screen = ctx.content_rect();
     let width = (screen.width() - 2.0 * FLOAT_GAP).max(0.0);
-    let pos = Pos2::new(screen.left() + FLOAT_GAP, screen.top() + APP_BAR_H + 8.0);
+    let pos = Pos2::new(screen.left() + FLOAT_GAP, screen.top() + app_bar_h(&ctx) + 8.0);
     egui::Area::new(egui::Id::unique("phone_status")).fixed_pos(pos).order(Order::Foreground).interactable(false).show(&ctx, |ui| {
         egui::Frame::NONE.fill(m.surface_high).corner_radius(CornerRadius::same(8)).shadow(elevation()).inner_margin(Margin::symmetric(12, 8)).show(
             ui,
@@ -496,7 +518,7 @@ pub fn pill_hidden(ctx: &Context) -> bool {
 /// keyboard while it is up. It never sits under the app bar.
 fn bar_top(ctx: &Context) -> f32 {
     let screen = ctx.content_rect();
-    (screen.bottom() - FLOAT_GAP - PILL_H).max(screen.top() + APP_BAR_H)
+    (screen.bottom() - FLOAT_GAP - PILL_H).max(screen.top() + app_bar_h(ctx))
 }
 
 /// The floating toolbar: formats, lists, insert and undo in groups, scrolled sideways when they
@@ -896,11 +918,10 @@ fn menu(app: &mut WordApp, ui: &mut Ui, tab: usize) {
                     if text_button(ui, m, crate::tl!("Close"), m.primary, 48.0).clicked() {
                         set_menu(&ctx, None);
                     }
-                    if icon_button(ui, m, "redo", "Redo").clicked() {
-                        run(app, "edit.redo");
-                    }
-                    if icon_button(ui, m, "undo", "Undo").clicked() {
-                        run(app, "edit.undo");
+                    // Undo and Redo are in the top bar; Search lives here (and in the Tiles style's More).
+                    if icon_button(ui, m, "find", "Search").clicked() {
+                        set_menu(&ctx, None);
+                        let _ = app.run("ui.dialog", json!({"name": "commands"}));
                     }
                 });
             });
@@ -1060,7 +1081,7 @@ fn tap_into_comment(app: &WordApp, ctx: &Context) -> bool {
     let id = egui::Id::unique("phone_tap_pending");
     let pending = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     // Read the layout before `ctx.input`: a context lock taken inside another one panics on the web build.
-    let (page_top, page_bottom) = (ctx.content_rect().top() + APP_BAR_H, bar_top(ctx));
+    let (page_top, page_bottom) = (ctx.content_rect().top() + app_bar_h(ctx), bar_top(ctx));
     let released = ctx.input(|i| {
         let on_page = i.pointer.interact_pos().is_some_and(|p| p.y > page_top && p.y < page_bottom);
         i.pointer.primary_released() && !i.pointer.is_decidedly_dragging() && on_page

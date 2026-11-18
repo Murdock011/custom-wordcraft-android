@@ -1,7 +1,7 @@
 //! The phone's Tiles style (the default) and the List style option: the tab bar, the tile sheets and
 //! the More sheet, and the setting that picks the style.
 
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 
 use super::*;
 
@@ -75,13 +75,13 @@ fn phone_tab_bar_switches_sheets() {
     assert!(has_button(&h, "Draw"), "More has Draw");
 }
 
-/// The List style keeps the floating bar with ⋮, and no tab bar.
+/// The List style keeps the floating bar with More, and no tab bar.
 #[test]
 fn phone_list_style_keeps_the_floating_bar() {
     let mut h = harness(true);
     assert!(!has_button(&h, "Insert"), "no tab bar in the List style");
     tap(&mut h, "More");
-    assert!(phone::sheet_open(&h.ctx), "⋮ opens the list sheet");
+    assert!(phone::sheet_open(&h.ctx), "More opens the list sheet");
 }
 
 /// `ui.phoneSheetStyle` picks the style, and rejects an unknown one.
@@ -94,4 +94,20 @@ fn phone_sheet_style_command_switches_styles() {
     a.run("ui.phoneSheetStyle", json!({"style": "tiles"})).unwrap();
     assert!(!a.ui.phone_list_style);
     assert!(a.run("ui.phoneSheetStyle", json!({"style": "grid"})).is_err());
+}
+
+/// The top bar: File, the name with ` •` once there are unsaved changes, then Undo, Redo and Save.
+/// Undo is disabled with nothing to undo. Search is not in the top bar; More has it.
+#[test]
+fn phone_top_bar_has_save_and_a_changed_mark() {
+    let mut h = harness(false);
+    let undo = h.get_by_role_and_label(egui::accesskit::Role::Button, "Undo");
+    assert!(undo.accesskit_node().is_disabled(), "nothing to undo yet");
+    assert!(has_button(&h, "Save") && has_button(&h, "Redo") && has_button(&h, "File"));
+    assert!(!has_button(&h, "Search"), "Search is in More, not the top bar");
+    h.state_mut().run("text.insert", json!({"text": "alpha"})).unwrap();
+    h.run_steps(3);
+    let stem = h.state().title_stem();
+    assert!(h.query_all_by_label(&format!("{stem} •")).next().is_some(), "the name shows the changed mark");
+    assert!(!h.get_by_role_and_label(egui::accesskit::Role::Button, "Undo").accesskit_node().is_disabled(), "Undo is enabled after an edit");
 }
