@@ -600,86 +600,101 @@ pub fn bottom_bar(app: &mut WordApp, ui: &mut Ui) {
     if app.canvas.context_menu_open {
         return;
     }
-    let width = (ctx.content_rect().width() - 2.0 * FLOAT_GAP).max(0.0);
-    let pos = Pos2::new(ctx.content_rect().left() + FLOAT_GAP, bar_top(&ctx));
+    // The Tiles style's keyboard bar (it shows only while the keyboard is up): full width, docked
+    // on the keyboard, with Hide Keyboard at its right end. The List style keeps the floating pill.
+    let keyboard_bar = !app.ui.phone_list_style;
+    let screen = ctx.content_rect();
+    let (width, pos) = if keyboard_bar {
+        (screen.width(), Pos2::new(screen.left(), (screen.bottom() - PILL_H).max(screen.top() + app_bar_h(&ctx))))
+    } else {
+        ((screen.width() - 2.0 * FLOAT_GAP).max(0.0), Pos2::new(screen.left() + FLOAT_GAP, bar_top(&ctx)))
+    };
+    let (radius, shadow, fill) =
+        if keyboard_bar { (CornerRadius::ZERO, egui::Shadow::NONE, m.surface) } else { (CornerRadius::same(PILL_R), elevation(), m.surface_high) };
     egui::Area::new(egui::Id::unique("phone_quick_bar")).fixed_pos(pos).order(Order::Foreground).show(&ctx, |ui| {
-        egui::Frame::NONE
-            .fill(m.surface_high)
-            .corner_radius(CornerRadius::same(PILL_R))
-            .shadow(elevation())
-            .inner_margin(Margin::symmetric(8, 4))
-            .show(ui, |ui| {
-                ui.set_width((width - 16.0).max(0.0));
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    let middle = (width - 16.0 - ICON_BTN - 8.0).max(ICON_BTN);
-                    // Centred when the groups fit: the last frame's width says how far to indent.
-                    let used_id = egui::Id::unique("phone_bar_used");
-                    let used = ctx.data(|d| d.get_temp::<f32>(used_id)).unwrap_or(0.0);
-                    egui::ScrollArea::horizontal()
-                        .id_salt("quick_bar_items")
-                        .max_width(middle)
-                        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 0.0;
-                                ui.add_space(((middle - used) / 2.0).max(0.0));
-                                let start = ui.cursor().left();
-                                for (icon, label, id) in [
-                                    ("bold", "Bold", "format.bold"),
-                                    ("italic", "Italic", "format.italic"),
-                                    ("underline", "Underline", "format.underline"),
-                                ] {
-                                    if icon_button(ui, m, icon, label).clicked() {
-                                        run(app, id);
-                                    }
+        egui::Frame::NONE.fill(fill).corner_radius(radius).shadow(shadow).inner_margin(Margin::symmetric(8, 4)).show(ui, |ui| {
+            if keyboard_bar {
+                let top = ui.max_rect().top() - 4.0;
+                ui.painter().hline(pos.x..=pos.x + width, top, egui::Stroke::new(1.0, m.outline_variant));
+            }
+            ui.set_width((width - 16.0).max(0.0));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                let middle = (width - 16.0 - ICON_BTN - 8.0).max(ICON_BTN);
+                // Centred when the groups fit: the last frame's width says how far to indent.
+                let used_id = egui::Id::unique("phone_bar_used");
+                let used = ctx.data(|d| d.get_temp::<f32>(used_id)).unwrap_or(0.0);
+                egui::ScrollArea::horizontal()
+                    .id_salt("quick_bar_items")
+                    .max_width(middle)
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            ui.add_space(((middle - used) / 2.0).max(0.0));
+                            let start = ui.cursor().left();
+                            for (icon, label, id) in [
+                                ("bold", "Bold", "format.bold"),
+                                ("italic", "Italic", "format.italic"),
+                                ("underline", "Underline", "format.underline"),
+                            ] {
+                                if icon_button(ui, m, icon, label).clicked() {
+                                    run(app, id);
                                 }
-                                if icon_button(ui, m, "highlight", "Highlight").clicked() {
-                                    run(app, "format.highlight");
+                            }
+                            if icon_button(ui, m, "highlight", "Highlight").clicked() {
+                                run(app, "format.highlight");
+                            }
+                            if icon_button(ui, m, "fontcolor", "Font Color").clicked() {
+                                run(app, "ui.colors");
+                            }
+                            divider(ui, m);
+                            for (icon, label, id) in [
+                                ("bullets", "Bullets", "para.bullets"),
+                                ("numbering", "Numbering", "para.numbering"),
+                                ("outdent", "Decrease Indent", "para.outdent"),
+                                ("indentLeft", "Increase Indent", "para.indent"),
+                            ] {
+                                if icon_button(ui, m, icon, label).clicked() {
+                                    run(app, id);
                                 }
-                                if icon_button(ui, m, "fontcolor", "Font Color").clicked() {
-                                    run(app, "ui.colors");
-                                }
-                                divider(ui, m);
-                                for (icon, label, id) in [
-                                    ("bullets", "Bullets", "para.bullets"),
-                                    ("numbering", "Numbering", "para.numbering"),
-                                    ("outdent", "Decrease Indent", "para.outdent"),
-                                    ("indentLeft", "Increase Indent", "para.indent"),
-                                ] {
-                                    if icon_button(ui, m, icon, label).clicked() {
-                                        run(app, id);
-                                    }
-                                }
-                                divider(ui, m);
-                                if icon_button(ui, m, "comment", "New Comment").clicked() {
-                                    set_menu(&ctx, Some(1));
-                                    comment_field(&ctx, CommentTarget::New);
-                                }
-                                if icon_button(ui, m, "link", "Link").clicked() {
-                                    let _ = app.run("ui.dialog", json!({"name": "link"}));
-                                }
-                                if icon_button(ui, m, "picture", "Picture").clicked() {
-                                    run(app, "insert.picture");
-                                }
-                                if icon_button(ui, m, "table", "Table").clicked() {
-                                    run(app, "insert.table");
-                                }
-                                divider(ui, m);
-                                if icon_button(ui, m, "undo", "Undo").clicked() {
-                                    run(app, "edit.undo");
-                                }
-                                let used = ui.cursor().left() - start;
-                                ctx.data_mut(|d| d.insert_temp(used_id, used));
-                            });
+                            }
+                            divider(ui, m);
+                            if icon_button(ui, m, "comment", "New Comment").clicked() {
+                                set_menu(&ctx, Some(1));
+                                comment_field(&ctx, CommentTarget::New);
+                            }
+                            if icon_button(ui, m, "link", "Link").clicked() {
+                                let _ = app.run("ui.dialog", json!({"name": "link"}));
+                            }
+                            if icon_button(ui, m, "picture", "Picture").clicked() {
+                                run(app, "insert.picture");
+                            }
+                            if icon_button(ui, m, "table", "Table").clicked() {
+                                run(app, "insert.table");
+                            }
+                            divider(ui, m);
+                            if icon_button(ui, m, "undo", "Undo").clicked() {
+                                run(app, "edit.undo");
+                            }
+                            let used = ui.cursor().left() - start;
+                            ctx.data_mut(|d| d.insert_temp(used_id, used));
                         });
-                    divider(ui, m);
-                    // Fixed at the right: ⋮ opens the menu.
-                    if icon_button(ui, m, "more", "More").clicked() {
-                        open_menu(app, &ctx, 0);
+                    });
+                divider(ui, m);
+                if keyboard_bar {
+                    // Fixed at the right: Hide Keyboard hands the focus back, and the tab bar returns.
+                    if icon_button(ui, m, "chevronDown", "Hide Keyboard").clicked() {
+                        app.canvas.want_focus = false;
+                        app.canvas.focused = false;
+                        ctx.request_repaint();
                     }
-                });
+                } else if icon_button(ui, m, "more", "More").clicked() {
+                    // Fixed at the right: ⋮ opens the menu.
+                    open_menu(app, &ctx, 0);
+                }
             });
+        });
     });
 }
 

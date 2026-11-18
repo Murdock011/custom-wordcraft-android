@@ -178,3 +178,21 @@ fn phone_search_commands_opens_all_tools_search() {
     assert_eq!(st.get("italic"), Some(&json!(true)), "the found command ran");
     assert!(!phone::sheet_open(&h.ctx), "running a command closes the tools");
 }
+
+/// While the keyboard is up (the window shrinks), the Tiles style hides the tab bar and shows the
+/// keyboard bar: formats, lists, New Comment, Link, Undo, and Hide Keyboard at the right end.
+#[test]
+fn phone_keyboard_bar_replaces_the_tab_bar_while_typing() {
+    let mut h = harness(false);
+    h.set_size(egui::vec2(412.0, 520.0));
+    h.run_steps(4);
+    assert!(!has_button(&h, "Insert"), "the tab bar hides while the keyboard is up");
+    for name in ["Bold", "Italic", "Underline", "Bullets", "Numbering", "Undo", "Hide Keyboard"] {
+        assert!(has_button(&h, name), "{name} is on the keyboard bar");
+    }
+    let bar = h.get_by_role_and_label(egui::accesskit::Role::Button, "Hide Keyboard").rect();
+    assert!(bar.bottom() > 520.0 - 60.0, "the bar sits on the keyboard: {bar:?}");
+    h.state_mut().canvas.focused = true;
+    tap(&mut h, "Hide Keyboard");
+    assert!(!h.state().canvas.focused, "Hide Keyboard hands the focus back");
+}
