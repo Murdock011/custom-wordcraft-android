@@ -810,6 +810,8 @@ fn pick_row(app: &mut WordApp, ctx: &Context, id: &str) {
         "layout.columns" => set_sub(ctx, Some(Sub::Columns)),
         "layout.break" => set_sub(ctx, Some(Sub::Breaks)),
         "review.comments" => set_sub(ctx, Some(Sub::Comments)),
+        "phone.lineSpacing" => set_sub(ctx, Some(Sub::LineSpacing)),
+        "phone.styles" => set_sub(ctx, Some(Sub::Styles)),
         "review.newComment" => comment_field(ctx, CommentTarget::New),
         _ => run(app, id),
     }
@@ -1080,6 +1082,8 @@ enum Sub {
     Breaks,
     Comments,
     CommentInput,
+    LineSpacing,
+    Styles,
 }
 
 /// What the comment field writes: a new comment on the selection, or a reply in a thread.
@@ -1190,21 +1194,61 @@ fn format_page(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context, s: Sub) {
         Sub::Columns => "Columns",
         Sub::Breaks => "Breaks",
         Sub::Comments => "Comments",
+        Sub::LineSpacing => "Line Spacing",
+        Sub::Styles => "Styles",
         Sub::CommentInput => match comment_target(ctx) {
             CommentTarget::New => "New Comment",
             CommentTarget::Reply(_) => "Reply",
         },
     };
+    // The page's header: a back arrow (to the sheet), then the title.
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(crate::tl!(title).to_string()).strong());
-        ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-            if text_button(ui, m, crate::tl!("Back"), m.primary, 72.0).clicked() {
-                sub_back(ctx);
-            }
-        });
+        ui.set_min_height(56.0);
+        if icon_button(ui, m, "chevronLeft", "Back").clicked() {
+            sub_back(ctx);
+        }
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new(crate::tl!(title).to_string()).font(medium(20.0)).color(m.on_surface));
     });
     ui.add_space(4.0);
     match s {
+        Sub::LineSpacing => {
+            for id in ["para.single", "para.oneAndHalf", "para.double"] {
+                let label = app.session.registry.get(id).map_or(id, |c| c.label);
+                if list_row(ui, m, crate::tl!(label), "lineSpacing", false).clicked() {
+                    let _ = app.run(id, json!({}));
+                    app.canvas.want_focus = false;
+                }
+            }
+            if list_row(ui, m, crate::tl!("Paragraph…"), "lineSpacing", true).clicked() {
+                set_sub(ctx, None);
+                set_menu(ctx, None);
+                let _ = app.run("ui.dialog", json!({"name": "paragraph"}));
+            }
+        }
+        Sub::Styles => {
+            // Paragraph styles: Normal and Heading 1 to 3 first, then the others by name.
+            let mut names: Vec<String> = app
+                .session
+                .doc
+                .styles
+                .styles
+                .iter()
+                .filter(|st| st.kind == wordcraft_doc::styles::StyleKind::Paragraph)
+                .map(|st| st.name.clone())
+                .collect();
+            let first = ["Normal", "Heading 1", "Heading 2", "Heading 3"];
+            names.sort_by_key(|n| (first.iter().position(|f| f == n).unwrap_or(first.len()), n.to_lowercase()));
+            names.dedup();
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for name in names {
+                    if list_row(ui, m, &name, "styles", false).clicked() {
+                        let _ = app.run("para.style", json!({"style": name}));
+                        app.canvas.want_focus = false;
+                    }
+                }
+            });
+        }
         Sub::Font => {
             let fams = app.previews.families();
             egui::ScrollArea::vertical().show(ui, |ui| {

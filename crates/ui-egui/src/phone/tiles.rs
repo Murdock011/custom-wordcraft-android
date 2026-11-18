@@ -88,9 +88,11 @@ const HOME: &[Section] = &[
             fmt("para.numbering"),
             fmt("para.outdent"),
             fmt("para.indent"),
+            named("phone.lineSpacing", "Line Spacing…", true),
             named("ui.paragraph", "Paragraph…", false),
         ],
     },
+    Section { heading: "Styles", items: &[named("phone.styles", "Styles…", true)] },
     Section {
         heading: "Clipboard and Editing",
         items: &[
@@ -109,11 +111,25 @@ const INSERT: &[Section] = &[
     Section { heading: "Pages and Tables", items: &[named("insert.table", "Table…", false), run("insert.pageBreak"), run("insert.blankPage")] },
     Section {
         heading: "Objects",
-        items: &[run("insert.picture"), run("insert.shape"), run("insert.textBox"), named("dialog:link", "Link…", false), run("insert.equation")],
+        items: &[
+            run("insert.picture"),
+            run("insert.shape"),
+            run("insert.textBox"),
+            named("dialog:link", "Link…", false),
+            named("dialog:symbol", "Symbol…", false),
+            run("insert.equation"),
+        ],
     },
     Section {
         heading: "Document Parts",
-        items: &[run("review.newComment"), run("insert.header"), run("insert.pageNumber"), run("references.footnote"), run("references.endnote")],
+        items: &[
+            run("review.newComment"),
+            run("insert.header"),
+            run("insert.pageNumber"),
+            run("references.footnote"),
+            run("references.endnote"),
+            run("references.toc"),
+        ],
     },
 ];
 
@@ -288,6 +304,10 @@ pub(super) fn tile_icon(id: &str) -> &'static str {
         "view.draft" => "draft",
         "view.webLayout" => "webLayout",
         "phone.printView" => "printLayout",
+        "phone.lineSpacing" => "lineSpacing",
+        "phone.styles" => "styles",
+        "dialog:symbol" => "symbol",
+        "references.toc" => "toc",
         _ => row_icon(id),
     }
 }
@@ -578,7 +598,7 @@ mod tests {
     fn every_tile_names_a_command_a_dialog_or_a_page() {
         let s = wordcraft_engine::Session::new(wordcraft_doc::Document::new());
         // Ids `pick_row` and `run` map themselves (pages, dialogs, presets) need no engine command.
-        let own = ["ui.colors", "ui.font", "ui.paragraph", "phone.printView", "review.comments"];
+        let own = ["ui.colors", "ui.font", "ui.paragraph", "phone.printView", "review.comments", "phone.lineSpacing", "phone.styles"];
         for tab in 0..5 {
             for section in sections(tab) {
                 assert!(!section.items.is_empty(), "{} has tiles", section.heading);

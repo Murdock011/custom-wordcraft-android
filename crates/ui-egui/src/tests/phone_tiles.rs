@@ -27,6 +27,21 @@ fn tap(h: &mut H, label: &str) {
     h.run_steps(3);
 }
 
+/// Scrolls the open sheet down by a wheel over its middle.
+fn scroll_sheet(h: &mut H) {
+    let at = egui::pos2(206.0, 700.0);
+    h.input_mut().events.push(egui::Event::PointerMoved(at));
+    h.run_steps(2);
+    h.input_mut().events.push(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -400.0),
+        phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(30);
+}
+
 fn has_button(h: &H, label: &str) -> bool {
     h.query_all_by_role_and_label(egui::accesskit::Role::Button, label).next().is_some()
 }
@@ -195,4 +210,25 @@ fn phone_keyboard_bar_replaces_the_tab_bar_while_typing() {
     h.state_mut().canvas.focused = true;
     tap(&mut h, "Hide Keyboard");
     assert!(!h.state().canvas.focused, "Hide Keyboard hands the focus back");
+}
+
+/// Home's Styles tile opens the style list (Normal and the headings first) and applies a style;
+/// Line Spacing opens its choices.
+#[test]
+fn phone_styles_and_line_spacing_pages() {
+    let mut h = harness(false);
+    // The sample document has the heading styles; a blank one has only Normal.
+    h.state_mut().session.set_document(wordcraft_engine::sample::sample_document());
+    h.run_steps(2);
+    tap(&mut h, "Home");
+    scroll_sheet(&mut h);
+    tap(&mut h, "Styles…");
+    tap(&mut h, "Heading 1");
+    let st = h.state_mut().session.run("format.state", &json!({})).unwrap();
+    assert_eq!(st.get("styleName").and_then(|s| s.as_str()), Some("Heading 1"), "the style was applied: {st}");
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "Back").click();
+    h.run_steps(3);
+
+    tap(&mut h, "Line Spacing…");
+    assert!(has_button(&h, "Double Spacing"), "the line spacing choices show");
 }
