@@ -313,6 +313,7 @@ pub(super) fn bottom(app: &mut WordApp, ui: &mut Ui, open: Option<usize>) {
     tab_bar(app, ui);
     match open {
         Some(MORE) => more_sheet(app, ui),
+        Some(super::tools::TOOLS) => tools_sheet(app, ui),
         Some(tab) => tab_sheet(app, ui, tab),
         None => {}
     }
@@ -453,9 +454,8 @@ fn more_sheet(app: &mut WordApp, ui: &mut Ui) {
     let title = crate::tl!("More").to_string();
     frame(app, ui, &title, |app, ui, m| {
         let ctx = ui.ctx().clone();
-        if super::list_row(ui, m, "Search", "find", false).clicked() {
-            set_menu(&ctx, None);
-            let _ = app.run("ui.dialog", json!({"name": "commands"}));
+        if super::list_row(ui, m, crate::tl!("Search"), "find", false).clicked() {
+            super::tools::open_search(&ctx);
         }
         let shown = shown_tabs(app);
         if shown.get(TABLE_TAB).copied().unwrap_or(false) || shown.get(PICTURE_TAB).copied().unwrap_or(false) {
@@ -467,10 +467,47 @@ fn more_sheet(app: &mut WordApp, ui: &mut Ui) {
             }
         }
         section_heading(ui, m, crate::tl!("More tabs"));
-        if super::list_row(ui, m, TABS[DRAW_TAB], "pen", true).clicked() {
+        if super::list_row(ui, m, crate::tl!(TABS[DRAW_TAB]), "pen", true).clicked() {
             set_menu(&ctx, Some(DRAW_TAB));
         }
+        if super::list_row(ui, m, crate::tl!("All tools"), "more", true).clicked() {
+            super::tools::open(&ctx, super::tools::Tool::Tabs);
+        }
     });
+}
+
+/// The tallest All tools may be: its lists are long.
+const DIALOG_MAX: f32 = 0.85;
+
+/// All tools in a sheet: a header with Back, the screen's title and Close, and the screen's list.
+pub(super) fn tools_sheet(app: &mut WordApp, ui: &mut Ui) {
+    let ctx = ui.ctx().clone();
+    let m = md(&ctx);
+    app.canvas.want_focus = false;
+    app.canvas.focused = false;
+    let height = (ctx.content_rect().height() * DIALOG_MAX).max(SHEET_HEADER_H + TILE_H);
+    let title = crate::tl!(&super::tools::title(&ctx)).to_string();
+    let panel = Panel::bottom("phone_tools_sheet")
+        .exact_size(height)
+        .frame(egui::Frame::NONE.fill(m.surface_low).inner_margin(Margin::symmetric(GUTTER as i8, 0)))
+        .show(ui, |ui| {
+            let full = ui.max_rect();
+            ui.painter().hline(full.x_range().expand(GUTTER), full.top(), Stroke::new(1.0, m.outline_variant));
+            ui.allocate_ui_with_layout(vec2(ui.available_width(), SHEET_HEADER_H), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.set_min_height(SHEET_HEADER_H);
+                if super::icon_button(ui, m, "chevronLeft", "Back").clicked() {
+                    super::tools::back(&ctx);
+                }
+                let w = (ui.available_width() - ICON_BTN).max(0.0);
+                let (r, _) = ui.allocate_exact_size(vec2(w, ICON_BTN), Sense::hover());
+                ui.painter().text(Pos2::new(r.left() + 4.0, r.center().y), Align2::LEFT_CENTER, &title, medium(20.0), m.on_surface);
+                if super::icon_button(ui, m, "close", "Close").clicked() {
+                    set_menu(&ctx, None);
+                }
+            });
+            egui::ScrollArea::vertical().id_salt(("phone_tools_body", title.clone())).show(ui, |ui| super::tools::body(app, ui, m));
+        });
+    ctx.data_mut(|d| d.insert_temp(super::sheet_rect_id(), panel.response.rect));
 }
 
 /// A section heading, small and in the primary colour.

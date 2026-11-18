@@ -137,3 +137,44 @@ fn phone_dark_theme_darkens_the_page() {
     h.run_steps(4);
     assert!(!h.state().session.view.dark_mode, "Light turns the page back");
 }
+
+/// More has Search and All tools. All tools lists the ribbon tabs; a tab lists its commands by group;
+/// a command that needs no values runs and closes the tools. Back steps out one level at a time.
+#[test]
+fn phone_all_tools_lists_tabs_and_runs_commands() {
+    let mut h = harness(false);
+    h.state_mut().run("text.insert", json!({"text": "alpha"})).unwrap();
+    h.state_mut().run("select.all", json!({})).unwrap();
+    h.run_steps(2);
+    tap(&mut h, "More");
+    tap(&mut h, "All tools");
+    assert!(h.query_all_by_label_contains("Home  (").next().is_some(), "the Home tab is listed with its count");
+    h.query_all_by_label_contains("Home  (").next().expect("the Home row").click();
+    h.run_steps(3);
+    assert!(phone::sheet_open(&h.ctx));
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "Back").click();
+    h.run_steps(3);
+    assert!(h.query_all_by_label_contains("Home  (").next().is_some(), "Back returns to the list of tabs");
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "Back").click();
+    h.run_steps(3);
+    assert!(has_button(&h, "All tools"), "Back from the tabs returns to More");
+}
+
+/// Search Commands on a phone opens All tools' Search, and finds a command by name.
+#[test]
+fn phone_search_commands_opens_all_tools_search() {
+    let mut h = harness(false);
+    h.state_mut().run("text.insert", json!({"text": "alpha"})).unwrap();
+    h.state_mut().run("select.all", json!({})).unwrap();
+    h.run_steps(3);
+    assert_eq!(h.state_mut().run("ui.dialog", json!({"name": "commands"})).unwrap(), json!({"dialog": "allTools"}));
+    h.run_steps(3);
+    assert!(h.state().dialog.is_none(), "no Search Commands dialog on a phone");
+    let field = h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Search commands");
+    field.type_text("italic");
+    h.run_steps(4);
+    tap(&mut h, "Italic");
+    let st = h.state_mut().session.run("format.state", &json!({})).unwrap();
+    assert_eq!(st.get("italic"), Some(&json!(true)), "the found command ran");
+    assert!(!phone::sheet_open(&h.ctx), "running a command closes the tools");
+}

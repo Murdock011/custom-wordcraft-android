@@ -11,6 +11,12 @@ use crate::icons;
 use crate::theme::{medium, regular};
 
 mod tiles;
+mod tools;
+
+/// Opens All tools on Search (Search Commands on a phone).
+pub(crate) fn open_tools_search(ctx: &Context) {
+    tools::open_search(ctx);
+}
 
 /// Windows narrower than this (points) get the phone layout. A phone held upright is about 390 pt.
 pub const MAX_WIDTH: f32 = 600.0;
@@ -563,16 +569,21 @@ pub fn bottom_bar(app: &mut WordApp, ui: &mut Ui) {
     }
     // The keyboard coming up closes the menu: the two never show together. The comment field is the
     // exception: its keyboard is what the sheet is for.
-    let typing = matches!(sub(&ctx), Some(Sub::CommentInput));
+    // All tools' Search and forms type too.
+    let typing = matches!(sub(&ctx), Some(Sub::CommentInput)) || menu_tab(&ctx) == Some(tools::TOOLS);
     let open = if keyboard_rising(&ctx) && !typing {
         set_menu(&ctx, None);
         None
     } else {
         // A contextual tab goes away with its object (the table, the picture): fall back to Home.
         let shown = shown_tabs(app);
-        menu_tab(&ctx).map(|t| if t == tiles::MORE || shown.get(t).copied().unwrap_or(false) { t } else { 0 })
+        menu_tab(&ctx).map(|t| if t == tiles::MORE || t == tools::TOOLS || shown.get(t).copied().unwrap_or(false) { t } else { 0 })
     };
     ctx.data_mut(|d| d.insert_temp(tiles_style_id(), !app.ui.phone_list_style));
+    // All tools takes the bottom of the screen in either style, above the keyboard while it types.
+    if open == Some(tools::TOOLS) {
+        return tiles::tools_sheet(app, ui);
+    }
     // The Tiles style (the default): the tab bar and its tile sheets, while the keyboard is down.
     // While the user types, the floating bar below is the keyboard bar.
     if !app.ui.phone_list_style && !keyboard_up_now(&ctx) {
@@ -679,7 +690,9 @@ pub fn can_go_back(ctx: &Context) -> bool {
 
 /// Escape or Back: closes the innermost open part of the sheet (its page first, then the sheet).
 pub fn back_step(ctx: &Context) {
-    if sub(ctx).is_some() {
+    if menu_tab(ctx) == Some(tools::TOOLS) {
+        tools::back(ctx);
+    } else if sub(ctx).is_some() {
         sub_back(ctx);
     } else {
         set_menu(ctx, None);
