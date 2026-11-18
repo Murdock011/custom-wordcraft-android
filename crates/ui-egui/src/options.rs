@@ -352,8 +352,17 @@ fn flag(app: &mut WordApp, ui: &mut Ui, label: &str, key: &str, value: bool) {
 /// Draws General options: interface theme and size, mini toolbar, dark page, community button and
 /// default apps; the Start screen; and personalization such as user name and initials.
 fn general(app: &mut WordApp, ui: &mut Ui) {
-    section(ui, "Interface");
-    theme_picker(app, ui);
+    let phone = crate::phone::active(ui.ctx());
+    // A phone leads with Theme and Phone layout; the desktop keeps the theme under Interface.
+    if phone {
+        theme_picker(app, ui);
+        section(ui, "Phone layout");
+        phone_style_picker(app, ui);
+        section(ui, "Interface");
+    } else {
+        section(ui, "Interface");
+        theme_picker(app, ui);
+    }
     interface_size_picker(app, ui);
     ui.horizontal(|ui| {
         use wordcraft_engine::cmd::view::PaperColor;
@@ -372,7 +381,6 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
     });
     switch(ui, &mut app.ui.mini_toolbar, tl!("Show the mini toolbar when text is selected"));
     selection_menu_picker(app, ui);
-    phone_style_picker(app, ui);
     let mut dark_page = app.session.view.dark_mode;
     if switch_help(
         ui,
@@ -458,7 +466,6 @@ fn selection_menu_picker(app: &mut WordApp, ui: &mut Ui) {
 /// formatting bar and a list sheet per tab). Saved with the settings.
 fn phone_style_picker(app: &mut WordApp, ui: &mut Ui) {
     let mut list = app.ui.phone_list_style;
-    ui.label(tl!("Phone layout:"));
     ui.horizontal_wrapped(|ui| {
         ui.radio_value(&mut list, false, tl!("Tiles")).on_hover_text(tl!("A tab bar at the bottom, and each tab's commands as tiles in groups."));
         ui.radio_value(&mut list, true, tl!("List")).on_hover_text(tl!("A floating formatting bar, and each tab's commands as rows."));
@@ -922,6 +929,22 @@ fn agents(ui: &mut Ui) {
 /// Interface theme: Light, Dark, or follow the system's appearance (#115).
 fn theme_picker(app: &mut WordApp, ui: &mut Ui) {
     use crate::theme::Appearance;
+    // A phone: the three choices as rows, each with a line under it, Light first.
+    if crate::phone::active(ui.ctx()) {
+        section(ui, "Theme");
+        for (a, label, line) in [
+            (Appearance::Light, "Light", "The default"),
+            (Appearance::Dark, "Dark", "The whole app, document area included"),
+            (Appearance::System, "System", "Follows the phone's dark theme setting"),
+        ] {
+            let resp = ui.radio(app.ui.theme == a, tl!(label));
+            note(ui, line);
+            if resp.clicked() && app.ui.theme != a {
+                let _ = app.run("ui.theme", json!({"value": a.code()}));
+            }
+        }
+        return;
+    }
     ui.horizontal_wrapped(|ui| {
         let label = ui.label(tl!("Interface theme:"));
         let combo = craft_ui::ComboBox::from_id_salt("interface_theme")

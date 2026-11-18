@@ -533,6 +533,18 @@ impl Default for UiState {
 }
 
 impl UiState {
+    /// The Android app's settings: `ui.json` as saved (`bytes`), or the defaults. The theme starts
+    /// Light when no theme was saved; the desktop builds keep System as their default.
+    pub fn android(bytes: Option<&[u8]>) -> UiState {
+        let saved = bytes.and_then(|b| serde_json::from_slice::<Value>(b).ok());
+        let has_theme = saved.as_ref().is_some_and(|v| v.get("theme").is_some() || v.get("dark").is_some());
+        let mut ui = bytes.and_then(UiState::from_json).unwrap_or_default();
+        if !has_theme {
+            ui.theme = theme::Appearance::Light;
+        }
+        ui
+    }
+
     /// Read `ui.json` leniently: a setting with a value of the wrong type (or a newer or older
     /// version's idea of it) falls back to its default instead of discarding every setting.
     /// `None` only when the file isn't a JSON object.

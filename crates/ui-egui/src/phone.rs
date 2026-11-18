@@ -198,6 +198,20 @@ pub fn top_bar(app: &mut WordApp, ui: &mut Ui) {
     });
 }
 
+/// Dark theme is app wide on a phone: when the interface turns dark (the setting, or the phone's
+/// dark theme with System), the page turns dark too (View › Switch Modes), and back to light with
+/// it. Only a change of theme moves the page, so Switch Modes still works on its own.
+pub fn follow_theme(app: &mut WordApp, ctx: &Context) {
+    let dark = ctx.global_style().visuals.dark_mode;
+    let id = egui::Id::unique("phone_theme_was_dark");
+    let was = ctx.data(|d| d.get_temp::<bool>(id));
+    ctx.data_mut(|d| d.insert_temp(id, dark));
+    // The first phone frame counts as a change, so a dark start opens on a dark page.
+    if was != Some(dark) && app.session.view.dark_mode != dark {
+        let _ = app.run("view.darkMode", json!({"value": dark}));
+    }
+}
+
 /// How long a status message stays on the phone. The desktop status bar keeps it for the same time.
 const STATUS_MS: f64 = 6000.0;
 

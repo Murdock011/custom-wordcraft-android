@@ -111,3 +111,29 @@ fn phone_top_bar_has_save_and_a_changed_mark() {
     assert!(h.query_all_by_label(&format!("{stem} •")).next().is_some(), "the name shows the changed mark");
     assert!(!h.get_by_role_and_label(egui::accesskit::Role::Button, "Undo").accesskit_node().is_disabled(), "Undo is enabled after an edit");
 }
+
+/// Android starts Light when no theme is saved (no file, or a file without one); a saved theme is
+/// kept. The desktop default stays System.
+#[test]
+fn android_settings_start_light() {
+    use crate::theme::Appearance;
+    assert_eq!(UiState::default().theme, Appearance::System, "the desktop default is unchanged");
+    assert_eq!(UiState::android(None).theme, Appearance::Light);
+    assert_eq!(UiState::android(Some(br#"{"recentCount": 5}"#)).theme, Appearance::Light);
+    assert_eq!(UiState::android(Some(br#"{"theme": "dark"}"#)).theme, Appearance::Dark);
+    assert_eq!(UiState::android(Some(br#"{"theme": "system"}"#)).theme, Appearance::System);
+    assert_eq!(UiState::android(Some(b"not json")).theme, Appearance::Light);
+}
+
+/// Dark is app wide on a phone: the dark theme turns the page dark, and Light turns it back.
+#[test]
+fn phone_dark_theme_darkens_the_page() {
+    let mut h = harness(false);
+    assert!(!h.state().session.view.dark_mode, "light theme, light page");
+    h.state_mut().run("ui.theme", json!({"value": "dark"})).unwrap();
+    h.run_steps(4);
+    assert!(h.state().session.view.dark_mode, "the dark theme darkens the page");
+    h.state_mut().run("ui.theme", json!({"value": "light"})).unwrap();
+    h.run_steps(4);
+    assert!(!h.state().session.view.dark_mode, "Light turns the page back");
+}

@@ -47,7 +47,13 @@ pub struct Shell {
     inbox: Inbox,
     /// The Recent list as last kept on disk, so it is written only when it changes.
     saved_recent: Vec<String>,
+    /// The settings as last kept on disk (`ui.json`), and frames since they were compared.
+    saved_ui: Vec<u8>,
+    ui_frames: u32,
 }
+
+/// How often (in frames) the settings are compared with what is on disk.
+const UI_SAVE_FRAMES: u32 = 60;
 
 impl Shell {
     pub fn new() -> Self {
@@ -103,6 +109,9 @@ impl Shell {
             ..Default::default()
         };
         let mut app = WordApp::new(session, services);
+        // The saved settings, or the defaults with the Light theme on a first start.
+        let saved_ui = files::load_ui().unwrap_or_default();
+        app.apply_prefs(wordcraft_ui_egui::UiState::android(Some(saved_ui.as_slice()).filter(|b| !b.is_empty())));
         // Local recovery, the desktop store: copies of unsaved work survive the process being killed.
         if let Some(dir) = files::recovery_dir() {
             let wake: std::sync::Arc<dyn Fn() + Send + Sync> = std::sync::Arc::new(ime::wake);
@@ -115,7 +124,19 @@ impl Shell {
         app.start_screen();
         let recent = files::load_recent();
         app.ui.recent = recent.clone();
-        Self { app, pending: Vec::new(), held: None, field_typed: 0, applying: false, drained: 0, saves, inbox, saved_recent: recent }
+        Self {
+            app,
+            pending: Vec::new(),
+            held: None,
+            field_typed: 0,
+            applying: false,
+            drained: 0,
+            saves,
+            inbox,
+            saved_recent: recent,
+            saved_ui,
+            ui_frames: 0,
+        }
     }
 
     /// A picked document now lives at `loc`: the title, Recent and plain Save follow it.
@@ -350,6 +371,16 @@ impl eframe::App for Shell {
         if self.app.ui.recent != self.saved_recent {
             files::save_recent(&self.app.ui.recent);
             self.saved_recent = self.app.ui.recent.clone();
+        }
+        self.ui_frames += 1;
+        if self.ui_frames >= UI_SAVE_FRAMES {
+            self.ui_frames = 0;
+            if let Some(bytes) = self.app.prefs_json()
+                && bytes != self.saved_ui
+            {
+                files::save_ui(&bytes);
+                self.saved_ui = bytes;
+            }
         }
     }
 
