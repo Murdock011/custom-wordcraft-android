@@ -228,6 +228,7 @@ pub(super) fn is_on(app: &WordApp, st: &State, id: &str) -> bool {
         "para.alignCenter" => st.align == Some(A::Center),
         "para.alignRight" => st.align == Some(A::Right),
         "para.justify" => st.align == Some(A::Justify),
+        "review.trackChanges" => app.session.doc.settings.track_changes,
         "view.marks" => app.session.view.marks,
         "view.darkMode" => app.session.view.dark_mode,
         _ => false,

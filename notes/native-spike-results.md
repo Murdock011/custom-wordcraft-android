@@ -1243,3 +1243,23 @@ Recover offer at launch after a kill (0.12 regression), fixed:
 
 Emulator, not yet done for the regression: the device (emulator-5554) was not attached when the step ran, so no `am kill` relaunch screenshot yet. Pending: type "survive3", HOME, `am kill`, relaunch, expect the Recover page with the copy.
 Pre-fix comparison (v012-a APK) not run; Close works on this build, so it was not needed for the fix.
+
+## Update 51: one phone shell with the sister apps (2026-11-18)
+Goal: the phone layout follows the shared phone plan that GridCraft and DeckCraft also follow.
+
+Changes:
+- Tab bar (Home, Insert, Layout, Review, View, More) and tile sheets in sections, the new default ("Tiles"). Tile labels come from the engine's commands. Formatting tiles keep the sheet open and show "on". New tiles: Line Spacing, Styles (the document's paragraph styles), Symbol, Table of Contents. `crates/ui-egui/src/phone/tiles.rs`.
+- The earlier floating bar and list sheet stay as the "List" style. File › Options › General › Phone layout, or `ui.phoneSheetStyle` `{"style": "tiles"|"list"}`.
+- Top bar: File, the name (with " •" for unsaved changes), Undo, Redo, Save. Undo and Redo are disabled when they have nothing to do. Search moved to More (Tiles) and the sheet header (List).
+- All tools: every command by ribbon tab and group, from the registry; pickers and forms for commands that need values; search. On a phone `ui.dialog` `commands` opens All tools' Search. `crates/ui-egui/src/phone/tools.rs`.
+- Keyboard bar: in the Tiles style, while the keyboard is up, a full-width bar on the keyboard with Hide Keyboard at its right end.
+- Theme: Options › General starts with Theme (Light, Dark, System). On a phone the page follows the theme (dark theme, dark page). The Android host now keeps `ui.json` in its data folder; a first start, or a file without a theme, is Light.
+- Sub-pages have a back-arrow header.
+
+Checks:
+- `cargo clippy -p wordcraft-ui-egui --all-targets -- -D warnings`: clean. `cargo fmt --all --check`: clean.
+- `cargo test -p wordcraft-ui-egui`: all pass except `backstage::tests::rtl_template_titles_are_right_aligned` and `theme::tests::interface_symbols_have_glyphs`, which fail the same way on `main` without these changes.
+- Headless renders (`ui_shot`, 412 x 915): Home, Layout, Review, More, All tools, Search, dark Home, dark Options › General.
+- Not run: `wordcraft-android` for Android (no NDK in this environment; CI builds it), the emulator, `cargo xtask ci` in full.
+
+Not done yet from the plan: the labelled selection bar (1.11), the File menu as a full-screen list (1.8), the dialog corrections of 2.3, and removal of the List style's icon bars.
