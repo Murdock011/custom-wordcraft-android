@@ -10,6 +10,8 @@ use crate::WordApp;
 use crate::icons;
 use crate::theme::{medium, regular};
 
+mod tiles;
+
 /// Windows narrower than this (points) get the phone layout. A phone held upright is about 390 pt.
 pub const MAX_WIDTH: f32 = 600.0;
 /// Height of the top app bar (Material's small app bar).
@@ -393,8 +395,14 @@ fn menu_id() -> egui::Id {
 }
 
 /// Where the open tab sheet's panel was drawn last. It lets a press outside it be told apart.
-fn sheet_rect_id() -> egui::Id {
+pub(super) fn sheet_rect_id() -> egui::Id {
     egui::Id::unique("phone_menu_rect")
+}
+
+/// Where the open sheet was drawn last frame.
+#[cfg(test)]
+pub(crate) fn sheet_rect(ctx: &Context) -> Option<Rect> {
+    ctx.data(|d| d.get_temp::<Rect>(sheet_rect_id()))
 }
 
 /// Whether a phone menu owns the pointer this frame. An open sheet takes its own area, and a press
@@ -408,9 +416,14 @@ pub(crate) fn take_pointer(ctx: &Context, selection_menu_open: bool, outside_sel
         ctx.data_mut(|d| d.remove::<bool>(gesture));
         return false;
     }
+    // A press on the Tiles style's tab bar is the tab bar's alone: the page under it gets nothing.
+    if pressed && tiles::on_tab_bar(ctx, pos) {
+        ctx.data_mut(|d| d.insert_temp(gesture, true));
+        return true;
+    }
     if pressed {
         let rect = ctx.data(|d| d.get_temp::<Rect>(sheet_rect_id()));
-        let outside_sheet = sheet_open(ctx) && matches!((pos, rect), (Some(p), Some(r)) if !r.contains(p));
+        let outside_sheet = sheet_open(ctx) && !tiles::on_tab_bar(ctx, pos) && matches!((pos, rect), (Some(p), Some(r)) if !r.contains(p));
         if outside_sheet || (selection_menu_open && outside_selection_menu) {
             set_menu(ctx, None);
             ctx.data_mut(|d| d.insert_temp(gesture, true));
@@ -463,7 +476,14 @@ const PILL_R: u8 = (PILL_H / 2.0) as u8;
 
 /// Space the floating bar takes from the bottom of the view: the page keeps the caret above it.
 pub fn bar_clearance(ctx: &Context, read_mode: bool) -> f32 {
-    if read_mode || pill_hidden(ctx) { 0.0 } else { PILL_H + FLOAT_GAP }
+    // The Tiles style's tab bar is a panel: the page already ends above it.
+    let tab_bar = ctx.data(|d| d.get_temp::<bool>(tiles_style_id())).unwrap_or(false) && !keyboard_up_now(ctx);
+    if read_mode || pill_hidden(ctx) || tab_bar { 0.0 } else { PILL_H + FLOAT_GAP }
+}
+
+/// Whether the Tiles style drew the bottom of the screen last frame (it has no floating bar).
+fn tiles_style_id() -> egui::Id {
+    egui::Id::unique("phone_tiles_style")
 }
 
 /// A phone turned sideways with the keyboard up has a band too short for the floating bar: the bar
@@ -514,10 +534,20 @@ pub fn bottom_bar(app: &mut WordApp, ui: &mut Ui) {
     } else {
         // A contextual tab goes away with its object (the table, the picture): fall back to Home.
         let shown = shown_tabs(app);
-        menu_tab(&ctx).map(|t| if shown.get(t).copied().unwrap_or(false) { t } else { 0 })
+        menu_tab(&ctx).map(|t| if t == tiles::MORE || shown.get(t).copied().unwrap_or(false) { t } else { 0 })
     };
-    // With the menu open it takes the bottom of the screen, and the toolbar hides.
-    if let Some(tab) = open {
+    ctx.data_mut(|d| d.insert_temp(tiles_style_id(), !app.ui.phone_list_style));
+    // The Tiles style (the default): the tab bar and its tile sheets, while the keyboard is down.
+    // While the user types, the floating bar below is the keyboard bar.
+    if !app.ui.phone_list_style && !keyboard_up_now(&ctx) {
+        if app.canvas.context_menu_open && menu_tab(&ctx).is_none() {
+            return;
+        }
+        return tiles::bottom(app, ui, open);
+    }
+    // With the menu open it takes the bottom of the screen, and the toolbar hides. More is a
+    // Tiles sheet: the List style shows Home in its place.
+    if let Some(tab) = open.map(|t| if t == tiles::MORE { 0 } else { t }) {
         return menu(app, ui, tab);
     }
     if app.canvas.context_menu_open {
@@ -914,6 +944,12 @@ fn menu(app: &mut WordApp, ui: &mut Ui, tab: usize) {
 fn font_row(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context) {
     // The font row, always here (no selection needed): the font name and the size stepper
     // in a fixed row, then the character formats, which scroll sideways.
+    font_name_row(app, ui, m, ctx);
+    font_formats_row(app, ui, m, ctx);
+}
+
+/// The font name (it opens the font list) and the size stepper (its number opens the size list).
+fn font_name_row(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context) {
     let st: Value = app.session.run("format.state", &json!({})).unwrap_or_default();
     let font = st.get("font").and_then(Value::as_str).unwrap_or("Font").to_string();
     let cur = st.get("size").and_then(Value::as_f64).unwrap_or(12.0) as f32;
@@ -936,6 +972,10 @@ fn font_row(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context) {
             let _ = app.run("format.size", json!({"size": x}));
         }
     });
+}
+
+/// The character formats in a row that scrolls sideways (the List style's Home sheet).
+fn font_formats_row(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context) {
     egui::ScrollArea::horizontal().id_salt("phone_font_row").scroll_source(egui::scroll_area::ScrollSource::ALL).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
@@ -1939,7 +1979,9 @@ mod tests {
         use egui_kittest::kittest::Queryable;
         let layout = TABS.iter().position(|t| *t == "Layout").unwrap_or(0);
         for tab in [TABLE_TAB, layout] {
-            let app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+            let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+            // The icon bars belong to the List style's sheets.
+            app.ui.phone_list_style = true;
             let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(412.0, 915.0)).build_ui_state(
                 |ui, app: &mut crate::WordApp| {
                     let ctx = ui.ctx().clone();

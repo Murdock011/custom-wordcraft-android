@@ -351,6 +351,9 @@ pub struct UiState {
     /// list when off. Kept between runs; File › Options › General has the choice.
     #[serde(default = "compact_selection_default")]
     pub compact_selection_menu: bool,
+    /// Phone: the List style (the floating formatting bar and a list sheet per tab) in place of the
+    /// Tiles style (a tab bar and tile sheets), the default. File › Options › General has the choice.
+    pub phone_list_style: bool,
     /// User name (File › Options) for comments and tracked changes. `None` (no saved name) keeps
     /// the default; a saved empty name stays empty (#4368).
     pub author: Option<String>,
@@ -492,6 +495,7 @@ impl Default for UiState {
             nav_collapsed: Default::default(),
             show_discord: true,
             compact_selection_menu: true,
+            phone_list_style: false,
             author: None,
             window: None,
             language: i18n::AUTO.into(),

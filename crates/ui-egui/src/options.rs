@@ -372,6 +372,7 @@ fn general(app: &mut WordApp, ui: &mut Ui) {
     });
     switch(ui, &mut app.ui.mini_toolbar, tl!("Show the mini toolbar when text is selected"));
     selection_menu_picker(app, ui);
+    phone_style_picker(app, ui);
     let mut dark_page = app.session.view.dark_mode;
     if switch_help(
         ui,
@@ -451,6 +452,21 @@ fn selection_menu_picker(app: &mut WordApp, ui: &mut Ui) {
     });
     app.ui.compact_selection_menu = icons;
     note(ui, "On a phone. The list shows the same commands as text rows.");
+}
+
+/// The phone's toolbar style: Tiles (a tab bar and tile sheets, the default) or List (the floating
+/// formatting bar and a list sheet per tab). Saved with the settings.
+fn phone_style_picker(app: &mut WordApp, ui: &mut Ui) {
+    let mut list = app.ui.phone_list_style;
+    ui.label(tl!("Phone layout:"));
+    ui.horizontal_wrapped(|ui| {
+        ui.radio_value(&mut list, false, tl!("Tiles")).on_hover_text(tl!("A tab bar at the bottom, and each tab's commands as tiles in groups."));
+        ui.radio_value(&mut list, true, tl!("List")).on_hover_text(tl!("A floating formatting bar, and each tab's commands as rows."));
+    });
+    if list != app.ui.phone_list_style {
+        let _ = app.run("ui.phoneSheetStyle", json!({"style": if list { "list" } else { "tiles" }}));
+    }
+    note(ui, "On a phone. Both show the same commands.");
 }
 
 fn display(app: &mut WordApp, ui: &mut Ui) {
@@ -1209,8 +1225,12 @@ mod phone_tests {
         h.run_steps(4);
         assert!(phone_category_open(&h.ctx), "General opened");
         let icons = h.get_by_role_and_label(egui::accesskit::Role::RadioButton, "Icons").rect();
-        let list = h.get_by_role_and_label(egui::accesskit::Role::RadioButton, "List").rect();
-        assert!(icons.left() >= 0.0 && list.right() <= 412.0, "Icons / List fit the screen: {icons:?} {list:?}");
+        // Two List choices: the selection menu's and the phone layout's (Tiles / List).
+        for list in h.query_all_by_role_and_label(egui::accesskit::Role::RadioButton, "List").map(|n| n.rect()) {
+            assert!(icons.left() >= 0.0 && list.right() <= 412.0, "Icons / List fit the screen: {icons:?} {list:?}");
+        }
+        let tiles = h.get_by_role_and_label(egui::accesskit::Role::RadioButton, "Tiles").rect();
+        assert!(tiles.right() <= 412.0, "Tiles fits the screen: {tiles:?}");
         h.get_by_role_and_label(egui::accesskit::Role::Button, "Back").click();
         h.run_steps(4);
         assert!(!phone_category_open(&h.ctx), "Back returns to the list");

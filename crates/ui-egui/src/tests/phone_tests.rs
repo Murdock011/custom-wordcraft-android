@@ -202,8 +202,9 @@ fn phone_tab_sheet_keeps_touches_on_itself() {
     phone::open_menu(&mut a, &ctx, 0);
     frame(&mut a, Vec::new());
     let before = a.session.sel.clone();
-    // The sheet's top edge (its drag handle) is at 800 - 0.55 * 800 = 360.
-    phone_press(&mut a, &mut frame, egui::pos2(200.0, 362.0), 40);
+    // Just inside the sheet's top edge (in either style).
+    let sheet = phone::sheet_rect(&ctx).expect("the sheet is laid out");
+    phone_press(&mut a, &mut frame, egui::pos2(200.0, sheet.top() + 2.0), 40);
     assert!(phone::sheet_open(&ctx), "a press on the sheet keeps it open");
     assert_eq!(a.session.sel, before, "the page got no press");
 }

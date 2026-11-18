@@ -262,6 +262,7 @@ impl WordApp {
             // running.
             ribbon_collapsed: _,
             compact_selection_menu: _,
+            phone_list_style: _,
             quick_access_toolbar: _,
             recent: _,
             recent_symbols: _,

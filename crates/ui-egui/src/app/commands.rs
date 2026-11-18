@@ -563,6 +563,16 @@ impl WordApp {
                 }
                 json!({"compactSelection": self.ui.compact_selection_menu, "compactTabs": self.compact_tab_bars})
             }
+            // The phone's toolbar style (`style`: "tiles" or "list"): a setting, not a dialog.
+            "ui.phoneSheetStyle" => {
+                match s("style") {
+                    Some("list") => self.ui.phone_list_style = true,
+                    Some("tiles") => self.ui.phone_list_style = false,
+                    Some(other) => return Some(Err(format!("unknown style {other:?}: use \"tiles\" or \"list\""))),
+                    None => {}
+                }
+                json!({"style": if self.ui.phone_list_style { "list" } else { "tiles" }})
+            }
             "ui.dialog" if s("name") == Some("colors") => {
                 // The font colour's More Colors… (#606); `tab`: standard or custom.
                 let target = colors::Target::cmd("format.color").remember(colors::Remember::FontColor);
