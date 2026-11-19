@@ -87,7 +87,7 @@ pub(super) fn context_menu(app: &mut WordApp, ui: &mut Ui) {
         }
         for sgt in sugg {
             if ui.button(egui::RichText::new(&sgt).strong()).clicked() {
-                let _ = app.run("review.applySuggestion", json!({"text": sgt}));
+                crate::phone::apply_suggestion(app, &issue, &sgt);
                 ui.close();
             }
         }

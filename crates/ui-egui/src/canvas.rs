@@ -1517,6 +1517,9 @@ fn finish_canvas_frame(finish: CanvasFinish<'_>, out: egui::scroll_area::ScrollA
     let long_at = if ui.input(|i| i.pointer.primary_released()) { app.canvas.long_press_at.take() } else { None };
     if let Some(at) = long_at {
         app.canvas.context_menu_at = Some(at);
+        // The menu's spelling suggestions are for the word the long press selected, not for
+        // wherever the caret was before.
+        context_suggestions(app);
     }
     // A click on the equation frame's options strip opens the equation's menu below the strip.
     let eq_strip = app.canvas.eq_options.map(|f| f.strip).filter(|r| resp.clicked() && resp.interact_pointer_pos().is_some_and(|p| r.contains(p)));

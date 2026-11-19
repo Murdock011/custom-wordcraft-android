@@ -773,7 +773,7 @@ pub fn context_menu(app: &mut WordApp, ui: &mut Ui) {
             ui.horizontal(|ui| {
                 for sgt in sugg.iter().take(3) {
                     if ui.button(egui::RichText::new(sgt).strong()).clicked() {
-                        let _ = app.run("review.applySuggestion", json!({"text": sgt}));
+                        apply_suggestion(app, &issue, sgt);
                         ui.close();
                     }
                 }
@@ -932,6 +932,16 @@ pub fn compact_context_menu(app: &mut WordApp, ui: &mut Ui) {
             ctx.data_mut(|d| d.insert_temp(more_id, true));
         }
     });
+}
+
+/// Replaces the misspelt word that `issue` (from `review.suggestions`) names with `text`: the word
+/// itself is selected first, so the change lands on it even if the caret moved since.
+pub(crate) fn apply_suggestion(app: &mut WordApp, issue: &Value, text: &str) {
+    let parse = |k: &str| issue.get(k).and_then(wordcraft_engine::cmd::parse_pos);
+    if let (Some(a), Some(b)) = (parse("start"), parse("end")) {
+        app.session.sel = wordcraft_engine::Selection { anchor: a, focus: b };
+    }
+    let _ = app.run("review.applySuggestion", json!({"text": text}));
 }
 
 /// The selection bar's button size: 72 pt wide, 64 pt tall.

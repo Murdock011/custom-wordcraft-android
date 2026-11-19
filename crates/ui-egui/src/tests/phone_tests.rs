@@ -107,6 +107,36 @@ fn phone_long_press_opens_the_selection_menu() {
     assert!(a.canvas.context_menu_open, "the long press opens the selection menu");
 }
 
+/// A long press on a misspelt word offers that word's suggestions, even when the caret was on an
+/// earlier misspelt word, and Change replaces the pressed word, not the earlier one.
+#[test]
+fn phone_long_press_suggests_for_the_pressed_word() {
+    let (_ctx, mut frame) = phone_frames(400.0);
+    let mut a = app();
+    a.run("text.insert", json!({"text": "wrold people themselfs"})).unwrap();
+    // The caret on the first misspelt word, with its suggestions read, as an earlier menu left them.
+    a.run("caret.docStart", json!({})).unwrap();
+    a.canvas.context_issue = a.session.run("review.suggestions", &json!({})).ok().filter(|v| !v.is_null());
+    for _ in 0..30 {
+        frame(&mut a, Vec::new());
+    }
+    let page = a.canvas.page_rects.first().copied().expect("the canvas laid out");
+    // Over "themselfs" (after "wrold people " on the first line).
+    let at = egui::pos2(page.left() + 130.0, page.top() + 20.0);
+    phone_press(&mut a, &mut frame, at, 40);
+    for _ in 0..3 {
+        frame(&mut a, Vec::new());
+    }
+    assert_eq!(a.session.selected_text().trim(), "themselfs", "the long press selects the pressed word");
+    let issue = a.canvas.context_issue.clone().expect("the pressed word has suggestions");
+    assert_eq!(issue.get("text").and_then(|v| v.as_str()), Some("themselfs"), "the suggestions are for the pressed word");
+    // Change, after the caret moved elsewhere: the pressed word is replaced, the first word kept.
+    a.run("caret.docStart", json!({})).unwrap();
+    crate::phone::apply_suggestion(&mut a, &issue, "themselves");
+    let text = a.session.doc.plain_text(wordcraft_doc::StoryRef::Body);
+    assert_eq!(text, "wrold people themselves", "Change lands on the pressed word: {text}");
+}
+
 /// Phone frames for the tests below: a screen of `w` by 800 points, `frame` runs one frame.
 fn phone_frames(w: f32) -> (egui::Context, impl FnMut(&mut WordApp, Vec<egui::Event>)) {
     let ctx = egui::Context::default();
