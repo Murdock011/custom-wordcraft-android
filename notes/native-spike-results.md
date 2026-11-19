@@ -1262,4 +1262,18 @@ Checks:
 - Headless renders (`ui_shot`, 412 x 915): Home, Layout, Review, More, All tools, Search, dark Home, dark Options › General.
 - Not run: `wordcraft-android` for Android (no NDK in this environment; CI builds it), the emulator, `cargo xtask ci` in full.
 
-Not done yet from the plan: the labelled selection bar (1.11), the File menu as a full-screen list (1.8), the dialog corrections of 2.3, and removal of the List style's icon bars.
+Not done in this update (done in Update 52): the labelled selection bar (1.11), the File menu as a full-screen list (1.8), the dialog corrections of 2.3.
+
+## Update 52: File menu, selection bar, dialogs per the phone shell (2026-11-19)
+Changes:
+- File menu (plan 1.8): the File button opens a full-screen list (Home, New, Open, Info, Recover, Save, Save As, Export, Print, Options, About, Close). A row opens one page under a back-arrow header. Back goes page, then menu, then document. The navigation drawer is gone; pages no longer repeat their title.
+- Selection bar (1.11): 72 pt buttons with labels: Cut, Copy, Paste, Select All, More. More lists New Comment, Table… or Picture… when one applies, then the paste and dialog rows. The spelling strip stays.
+- Dialogs (2.3): Find and Replace (48 pt tabs, labels above fields, switch rows, pinned Close/Find Next or Replace All/Replace/Find Next); Font effects as switch rows; Paragraph fields one per row; Colors as 16 swatches and a hex field; Print with the shared sentence, a Print Markup switch and a Save as PDF primary button; Save As template button at 48 pt.
+
+Checks:
+- `cargo clippy -p wordcraft-ui-egui --all-targets -- -D warnings`: clean. `cargo fmt --all --check`: clean.
+- `cargo test -p wordcraft-ui-egui --lib`: all pass except the two that fail on `main` too (`rtl_template_titles_are_right_aligned`, `interface_symbols_have_glyphs`).
+- Headless renders at 412 x 915: File menu, Find and Replace, Font, Paragraph, Colors, Print, Save As, the selection bar.
+- Not run: the Android build (no NDK here), the emulator.
+
+Not done: the List style still uses the older sheet with its icon bars, not the shared section model (plan 1.6a); a test that walks the whole Back order (1.12).
