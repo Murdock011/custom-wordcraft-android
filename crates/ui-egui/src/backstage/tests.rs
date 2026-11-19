@@ -1217,13 +1217,48 @@ fn backstage_close_on_a_clean_document_closes_at_once() {
     assert!(!h.state().has_document() && !h.state().quit_requested);
 }
 
-/// The phone drawer lists Options above Close.
+/// The phone File menu lists every page, in the shared shell's order: Options and About above
+/// Close, which ends the list.
 #[test]
-fn drawer_lists_options_above_close() {
-    let pages = super::drawer_pages();
-    let at = |id: &str| pages.iter().position(|p| p.0 == id);
-    assert!(at("options") < at("close"), "Options comes above Close");
-    assert_eq!(pages.len(), super::PAGES.len());
+fn file_menu_lists_every_page_with_close_last() {
+    let rows = super::MENU_ROWS;
+    let at = |id: &str| rows.iter().position(|p| p.0 == id);
+    assert!(at("options") < at("about") && at("about") < at("close"), "Options, About, then Close");
+    assert_eq!(rows.last().map(|r| r.0), Some("close"));
+    for (id, ..) in super::PAGES {
+        assert!(at(id).is_some(), "{id} is in the File menu");
+    }
+}
+
+/// On a phone the File button opens the File menu; a row opens one page; Back goes page, then
+/// menu, then the document.
+#[test]
+fn phone_file_menu_then_page_then_back() {
+    use egui_kittest::kittest::Queryable;
+    let a = WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), Services::default());
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(412.0, 915.0)).build_ui_state(
+        |ui, app: &mut WordApp| {
+            let ctx = ui.ctx().clone();
+            app.logic(&ctx);
+            app.ui(ui);
+        },
+        a,
+    );
+    h.run_steps(3);
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "File").click();
+    h.run_steps(3);
+    assert!(h.state().ui.backstage);
+    assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, "Save As").is_some(), "the menu lists the pages");
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "Info").click();
+    h.run_steps(3);
+    assert_eq!(h.state().ui.backstage_page, "info");
+    assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, "Save As").is_none(), "one page at a time");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(h.query_by_role_and_label(egui::accesskit::Role::Button, "Save As").is_some(), "Back returns to the menu");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(!h.state().ui.backstage, "Back from the menu returns to the document");
 }
 
 /// On Android Close ends the app: a clean document quits at once, a dirty one asks first.

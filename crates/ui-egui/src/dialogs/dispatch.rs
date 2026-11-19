@@ -388,6 +388,11 @@ fn paragraph_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     ok || cancel || tabs
 }
 
+/// A label and its field: one above the other on a phone, side by side on the desktop.
+fn stack<R>(ui: &mut Ui, phone: bool, add: impl FnOnce(&mut Ui) -> R) -> R {
+    if phone { ui.vertical(add).inner } else { ui.horizontal(add).inner }
+}
+
 fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     let Dialog::Find { query, replace, match_case, whole_word, regex, extra, tab, goto_what, goto_target, message, focus } = d else {
         return false;
@@ -404,10 +409,13 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         return goto_body(app, ui, goto_what, goto_target, message);
     }
     let replace_mode = *tab == FindTab::Replace;
-    ui.horizontal(|ui| {
+    // A phone: labels above full-width fields, options as switch rows, the buttons pinned below.
+    let phone = crate::phone::active(ui.ctx());
+    let field_w = if phone { f32::INFINITY } else { 240.0 };
+    stack(ui, phone, |ui| {
         let find_label = ui.label(tl!("Find what:"));
         let r = ui
-            .add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(query)).id(egui::Id::unique("find_what")).desired_width(240.0))
+            .add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(query)).id(egui::Id::unique("find_what")).desired_width(field_w))
             .labelled_by(find_label.id);
         if std::mem::take(focus) {
             r.request_focus();
@@ -417,10 +425,10 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         }
     });
     if replace_mode {
-        ui.horizontal(|ui| {
+        stack(ui, phone, |ui| {
             let replace_label = ui.label(tl!("Replace with:"));
             if ui
-                .add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(replace)).desired_width(228.0))
+                .add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(replace)).desired_width(if phone { f32::INFINITY } else { 228.0 }))
                 .labelled_by(replace_label.id)
                 .gained_focus()
             {
@@ -432,11 +440,17 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     }
     // Word greys out Match case and the word options with wildcards (they always match case).
     let plain = !extra.wildcards;
-    ui.horizontal(|ui| {
-        ui.add_enabled_ui(plain, |ui| ui.checkbox(match_case, tl!("Match case")));
-        ui.add_enabled_ui(plain, |ui| ui.checkbox(whole_word, tl!("Whole words")));
-        ui.checkbox(&mut extra.wildcards, tl!("Use wildcards"));
-    });
+    if phone {
+        ui.add_enabled_ui(plain, |ui| crate::phone::toggle_row(ui, match_case, tl!("Match case")));
+        ui.add_enabled_ui(plain, |ui| crate::phone::toggle_row(ui, whole_word, tl!("Whole words")));
+        crate::phone::toggle_row(ui, &mut extra.wildcards, tl!("Use wildcards"));
+    } else {
+        ui.horizontal(|ui| {
+            ui.add_enabled_ui(plain, |ui| ui.checkbox(match_case, tl!("Match case")));
+            ui.add_enabled_ui(plain, |ui| ui.checkbox(whole_word, tl!("Whole words")));
+            ui.checkbox(&mut extra.wildcards, tl!("Use wildcards"));
+        });
+    }
     let arrow = if extra.more { "▾" } else { "▸" };
     if ui.selectable_label(extra.more, format!("{arrow} {}", tl!("Search Options"))).clicked() {
         extra.more = !extra.more;
@@ -487,6 +501,30 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         ui.label(egui::RichText::new(message.as_str()).weak());
     }
     let mut close = false;
+    if phone {
+        // Pinned below: Find (Close and Find Next), or Replace (Replace All, Replace, Find Next).
+        let labels: Vec<&str> =
+            if replace_mode { vec![tl!("Replace All"), tl!("Replace"), tl!("Find Next")] } else { vec![tl!("Close"), tl!("Find Next")] };
+        let primary = labels.len() - 1;
+        if let Some(clicked) = crate::dialogs::footer_row(ui, &labels, primary, true) {
+            match (replace_mode, clicked) {
+                (true, Some(0)) => match app.run("edit.replaceAll", opts.clone()) {
+                    Ok(r) => *message = format!("All done. We made {} replacements.", r["replaced"]),
+                    Err(e) => *message = e,
+                },
+                (true, Some(1)) => {
+                    let _ = app.run("edit.replace", opts.clone());
+                }
+                (false, Some(0)) => close = true,
+                (_, Some(_)) => match app.run("edit.findNext", opts.clone()) {
+                    Ok(r) => *message = format!("Match {} of {}", r["index"].as_u64().unwrap_or(0) + 1, r["count"]),
+                    Err(e) => *message = e,
+                },
+                (_, None) => {}
+            }
+            return close;
+        }
+    }
     ui.horizontal(|ui| {
         if replace_mode {
             if ui.button(tl!("Replace All")).clicked() {

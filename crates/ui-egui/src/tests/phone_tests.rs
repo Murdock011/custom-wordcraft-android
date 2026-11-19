@@ -622,7 +622,7 @@ fn phone_handle_press_off_centre_does_not_move_the_selection() {
 }
 
 /// Home with nothing open (the Start screen, or after the document is closed) has no document to
-/// go back to: Back, and the back arrow, make a blank document as Blank document does, not an
+/// go back to: Back (twice: the page, then the File menu), and the back arrow, make a blank document as Blank document does, not an
 /// empty window.
 #[test]
 fn phone_back_from_home_with_nothing_open_makes_a_blank_document() {
@@ -634,9 +634,12 @@ fn phone_back_from_home_with_nothing_open_makes_a_blank_document() {
     }
     assert!(a.ui.backstage && !a.has_document(), "Home with nothing open");
     let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
-    frame(&mut a, vec![esc]);
-    for _ in 0..3 {
-        frame(&mut a, Vec::new());
+    // Back goes from the page to the File menu, then to the document.
+    for _ in 0..2 {
+        frame(&mut a, vec![esc.clone()]);
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
     }
     assert!(!a.ui.backstage, "Back leaves Home");
     assert!(a.has_document(), "Back makes a blank document, not an empty window");
@@ -649,7 +652,9 @@ fn phone_back_from_home_with_nothing_open_makes_a_blank_document() {
     for _ in 0..30 {
         frame(&mut b, Vec::new());
     }
-    phone_press(&mut b, &mut frame, egui::pos2(370.0, 28.0), 3);
+    // The back arrow at the left of the File view's header: page, then menu, then the document.
+    phone_press(&mut b, &mut frame, egui::pos2(30.0, 28.0), 3);
+    phone_press(&mut b, &mut frame, egui::pos2(30.0, 28.0), 3);
     assert!(!b.ui.backstage, "the back arrow leaves Home");
     assert!(b.has_document(), "the back arrow makes a blank document");
 }
@@ -666,9 +671,11 @@ fn phone_back_from_recover_with_nothing_open_makes_a_blank_document() {
     }
     assert!(a.ui.backstage && !a.has_document(), "Recover with nothing open");
     let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
-    frame(&mut a, vec![esc]);
-    for _ in 0..3 {
-        frame(&mut a, Vec::new());
+    for _ in 0..2 {
+        frame(&mut a, vec![esc.clone()]);
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
     }
     assert!(!a.ui.backstage, "Back leaves the Backstage");
     assert!(a.has_document(), "Back makes a blank document, not an empty window");
@@ -685,9 +692,11 @@ fn phone_back_from_home_with_a_document_keeps_it() {
         frame(&mut a, Vec::new());
     }
     let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
-    frame(&mut a, vec![esc]);
-    for _ in 0..3 {
-        frame(&mut a, Vec::new());
+    for _ in 0..2 {
+        frame(&mut a, vec![esc.clone()]);
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
     }
     assert!(!a.ui.backstage, "Back returns to the editor");
     assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Work", "the open document is kept");

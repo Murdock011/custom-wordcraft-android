@@ -158,6 +158,7 @@ pub fn top_bar(app: &mut WordApp, ui: &mut Ui) {
         ui.horizontal_centered(|ui| {
             if icon_button(ui, m, "file", "File").clicked() {
                 let _ = app.run("ui.backstage", json!({"value": true}));
+                crate::backstage::open_phone_menu(ui.ctx());
             }
             // The name gets what the icons on the right leave, and is cut short. Three icons are on
             // the right: Undo, Redo and Save, or in Read mode Edit Document, Next and Previous.
@@ -734,6 +735,19 @@ pub fn context_menu(app: &mut WordApp, ui: &mut Ui) {
         if list_row(ui, m, crate::tl!("Back"), "chevronLeft", false).clicked() {
             ctx.data_mut(|d| d.insert_temp(more_id, false));
         }
+        if list_row(ui, m, crate::tl!("New Comment"), "comment", false).clicked() {
+            set_menu(&ctx, Some(3));
+            comment_field(&ctx, CommentTarget::New);
+            ui.close();
+        }
+        // The contextual sheet for the object under the selection: a table or a picture.
+        let shown = shown_tabs(app);
+        for (tab, label, icon) in [(TABLE_TAB, "Table…", "table"), (PICTURE_TAB, "Picture…", "picture")] {
+            if shown.get(tab).copied().unwrap_or(false) && list_row(ui, m, crate::tl!(label), icon, true).clicked() {
+                open_menu(app, &ctx, tab);
+                ui.close();
+            }
+        }
         for (label, icon, id, params) in [
             ("Keep Text Only", "paste", "edit.pasteText", json!({})),
             ("Merge Formatting", "paste", "edit.pasteMerge", json!({})),
@@ -903,27 +917,39 @@ pub fn compact_context_menu(app: &mut WordApp, ui: &mut Ui) {
     }
     let selected = !app.session.sel.is_collapsed();
     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+    // The selection bar (plan 1.11): four actions and More, each an icon over its label, 72 pt wide.
     ui.horizontal(|ui| {
         for (icon, label, id) in
             [("cut", "Cut", "edit.cut"), ("copy", "Copy", "edit.copy"), ("paste", "Paste", "edit.paste"), ("select", "Select All", "select.all")]
         {
             let on = crate::widgets::enabled(app, id) && (selected || !matches!(id, "edit.cut" | "edit.copy"));
-            ui.add_enabled_ui(on, |ui| {
-                if icon_button(ui, m, icon, label).clicked() {
-                    let _ = app.run(id, json!({}));
-                    ui.close();
-                }
-            });
+            if bar_button(ui, m, icon, label, label, on).clicked() {
+                let _ = app.run(id, json!({}));
+                ui.close();
+            }
         }
-        if icon_button(ui, m, "comment", "New Comment").clicked() {
-            set_menu(&ctx, Some(3));
-            comment_field(&ctx, CommentTarget::New);
-            ui.close();
-        }
-        if icon_button(ui, m, "more", "More").clicked() {
+        if bar_button(ui, m, "more", "More", "More actions", true).clicked() {
             ctx.data_mut(|d| d.insert_temp(more_id, true));
         }
     });
+}
+
+/// The selection bar's button size: 72 pt wide, 64 pt tall.
+const SELECT_W: f32 = 72.0;
+const SELECT_H: f32 = 64.0;
+
+/// One button of the selection bar: the icon over its label (`name` is the accessible name).
+fn bar_button(ui: &mut Ui, m: Md, icon: &str, label: &str, name: &str, enabled: bool) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(SELECT_W, SELECT_H), if enabled { Sense::click() } else { Sense::hover() });
+    let name = crate::tl!(name).to_string();
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, name.clone()));
+    if enabled && resp.is_pointer_button_down_on() {
+        ui.painter().rect_filled(r.shrink(2.0), CornerRadius::same(12), m.outline_variant);
+    }
+    let ink = if enabled { m.on_surface } else { m.on_surface_variant.gamma_multiply(0.45) };
+    icons::paint(ui.painter(), Rect::from_center_size(Pos2::new(r.center().x, r.top() + 22.0), vec2(24.0, 24.0)), icon, ink, m.primary);
+    ui.painter().text(Pos2::new(r.center().x, r.bottom() - 14.0), Align2::CENTER_CENTER, crate::tl!(label), regular(12.0), ink);
+    resp
 }
 
 /// A thin vertical rule between groups of toolbar controls.
