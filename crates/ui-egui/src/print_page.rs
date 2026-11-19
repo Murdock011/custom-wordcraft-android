@@ -234,13 +234,20 @@ pub fn show(app: &mut WordApp, ui: &mut Ui) {
                     app.ui.print.copies = app.printing.settings.copies;
                 } else if hook {
                     ui.label(tl!("Send the document straight to the system print dialog, or save a copy in another format below."));
+                } else if crate::phone::active(ui.ctx()) {
+                    // The shared phone shell's Print sentence (plan 1.8).
+                    ui.label(tl!("Printing goes through a PDF. Save the PDF, then print it from a PDF viewer."));
                 } else {
                     ui.label(tl!("Save a copy in another format. Printing goes through a PDF you can print from any viewer."));
                 }
-                if ui
-                    .add(egui::Button::new(egui::RichText::new(tl!("Save these pages as PDF…")).font(medium(13.5))).min_size(button_size(ui, 34.0)))
-                    .clicked()
-                {
+                let phone = crate::phone::active(ui.ctx());
+                let save_pdf = if phone {
+                    // A phone: the page's one primary button.
+                    crate::widgets::primary_button(ui, tl!("Save as PDF"))
+                } else {
+                    egui::Button::new(egui::RichText::new(tl!("Save these pages as PDF…")).font(medium(13.5)))
+                };
+                if ui.add(save_pdf.min_size(button_size(ui, 34.0))).clicked() {
                     app.print_pdf_dialog();
                 }
                 ui.add_space(6.0);

@@ -1179,7 +1179,7 @@ fn set_sub(ctx: &Context, s: Option<Sub>) {
 }
 
 /// Standard colours for the font colour grid (our own palette).
-const FONT_COLOURS: [&str; 16] = [
+pub(crate) const FONT_COLOURS: [&str; 16] = [
     "000000", "FFFFFF", "C00000", "FF0000", "FFC000", "FFFF00", "92D050", "00B050", "00B0F0", "0070C0", "002060", "7030A0", "1F4E79", "2E75B6",
     "A9D18E", "F4B183",
 ];

@@ -603,6 +603,42 @@ fn hexagon(c: Pos2, s: f32) -> Vec<Pos2> {
 
 fn standard(ui: &mut Ui, d: &mut ColorsDialog) {
     let t = Tokens::get(ui.ctx());
+    // A phone: the shell's 16 swatches (48 pt) and a hex field, in place of the honeycomb.
+    if crate::phone::active(ui.ctx()) {
+        ui.label(tl!("Colors:"));
+        let cols = ((ui.available_width() / 56.0).floor() as usize).max(1);
+        for chunk in crate::phone::FONT_COLOURS.chunks(cols) {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                for hex in chunk {
+                    let Some(col) = parse(hex) else { continue };
+                    let (r, resp) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::click());
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("#{hex}")));
+                    let on = col == d.color;
+                    ui.painter().circle(
+                        r.center(),
+                        20.0,
+                        c32(col),
+                        Stroke::new(if on { 3.0 } else { 1.0 }, if on { t.accent } else { t.border_strong }),
+                    );
+                    if resp.clicked() {
+                        d.set_rgb(col);
+                    }
+                }
+            });
+        }
+        ui.add_space(8.0);
+        let l = ui.label(tl!("Hex:"));
+        let mut hex = d.hex.clone();
+        let r = ui.add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(&mut hex)).desired_width(f32::INFINITY)).labelled_by(l.id);
+        if r.changed() {
+            if let Some(col) = parse(&hex) {
+                d.set_rgb(col);
+            }
+            d.hex = hex;
+        }
+        return;
+    }
     ui.label(tl!("Colors:"));
     let s = 11.0;
     let n = HONEYCOMB_RINGS as f32;

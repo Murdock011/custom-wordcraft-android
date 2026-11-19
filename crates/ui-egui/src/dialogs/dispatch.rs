@@ -210,36 +210,57 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     });
     ui.separator();
     ui.label(egui::RichText::new(tl!("Effects")).font(semibold(12.5)));
-    crate::rtl::Table::new("fx").columns(2).show(ui, |t| {
-        t.row(|r| {
-            r.cell(|ui| ui.checkbox(bold, tl!("Bold")));
-            r.cell(|ui| ui.checkbox(italic, tl!("Italic")));
-        });
-        t.row(|r| {
-            r.cell(|ui| ui.checkbox(underline, tl!("Underline")));
-            r.cell(|ui| ui.checkbox(strike, tl!("Strikethrough")));
-        });
-        t.row(|r| {
-            // Superscript and Subscript exclude each other: the one just ticked wins.
-            let was_sup = *sup;
-            r.cell(|ui| ui.checkbox(sup, tl!("Superscript")));
-            r.cell(|ui| ui.checkbox(sub, tl!("Subscript")));
-            if *sup && *sub {
-                if was_sup {
-                    *sup = false;
-                } else {
-                    *sub = false;
-                }
+    // A phone: the effects as switch rows in one column.
+    if crate::phone::active(ui.ctx()) {
+        crate::phone::toggle_row(ui, bold, tl!("Bold"));
+        crate::phone::toggle_row(ui, italic, tl!("Italic"));
+        crate::phone::toggle_row(ui, underline, tl!("Underline"));
+        crate::phone::toggle_row(ui, strike, tl!("Strikethrough"));
+        let was_sup = *sup;
+        crate::phone::toggle_row(ui, sup, tl!("Superscript"));
+        crate::phone::toggle_row(ui, sub, tl!("Subscript"));
+        if *sup && *sub {
+            if was_sup {
+                *sup = false;
+            } else {
+                *sub = false;
             }
+        }
+        crate::phone::toggle_row(ui, small_caps, tl!("Small caps"));
+        crate::phone::toggle_row(ui, caps, tl!("All caps"));
+        crate::phone::toggle_row(ui, hidden, tl!("Hidden"));
+    } else {
+        crate::rtl::Table::new("fx").columns(2).show(ui, |t| {
+            t.row(|r| {
+                r.cell(|ui| ui.checkbox(bold, tl!("Bold")));
+                r.cell(|ui| ui.checkbox(italic, tl!("Italic")));
+            });
+            t.row(|r| {
+                r.cell(|ui| ui.checkbox(underline, tl!("Underline")));
+                r.cell(|ui| ui.checkbox(strike, tl!("Strikethrough")));
+            });
+            t.row(|r| {
+                // Superscript and Subscript exclude each other: the one just ticked wins.
+                let was_sup = *sup;
+                r.cell(|ui| ui.checkbox(sup, tl!("Superscript")));
+                r.cell(|ui| ui.checkbox(sub, tl!("Subscript")));
+                if *sup && *sub {
+                    if was_sup {
+                        *sup = false;
+                    } else {
+                        *sub = false;
+                    }
+                }
+            });
+            t.row(|r| {
+                r.cell(|ui| ui.checkbox(small_caps, tl!("Small caps")));
+                r.cell(|ui| ui.checkbox(caps, tl!("All caps")));
+            });
+            t.row(|r| {
+                r.cell(|ui| ui.checkbox(hidden, tl!("Hidden")));
+            });
         });
-        t.row(|r| {
-            r.cell(|ui| ui.checkbox(small_caps, tl!("Small caps")));
-            r.cell(|ui| ui.checkbox(caps, tl!("All caps")));
-        });
-        t.row(|r| {
-            r.cell(|ui| ui.checkbox(hidden, tl!("Hidden")));
-        });
-    });
+    }
     // Live preview of the chosen font/size/colour/effects.
     ui.separator();
     ui.label(egui::RichText::new(tl!("Preview")).small().weak());
@@ -322,32 +343,52 @@ fn paragraph_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.label(egui::RichText::new(tl!("Indentation")).font(semibold(12.5)));
             // Mirrored indents are the inside and outside ones (they swap on even pages).
             let (l_label, r_label) = if opts[0] { ("Inside:", "Outside:") } else { ("Left:", "Right:") };
-            crate::rtl::Table::new("ind").columns(4).show(ui, |t| {
-                t.row(|r| {
-                    let left_label = r.cell(|ui| ui.label(tl!(l_label)));
-                    r.cell(|ui| para_number(ui, left, ParaNumber::Length, "left", mixed, &left_label));
-                    let right_label = r.cell(|ui| ui.label(tl!(r_label)));
-                    r.cell(|ui| para_number(ui, right, ParaNumber::Length, "right", mixed, &right_label));
+            let phone = crate::phone::active(ui.ctx());
+            // A phone: one field per row, each label above its field.
+            if phone {
+                for (label, value, key) in
+                    [(l_label, &mut *left, "left"), (r_label, &mut *right, "right"), ("First line:", &mut *first, "indentFirst")]
+                {
+                    let l = ui.label(tl!(label));
+                    para_number(ui, value, ParaNumber::Length, key, mixed, &l);
+                }
+            } else {
+                crate::rtl::Table::new("ind").columns(4).show(ui, |t| {
+                    t.row(|r| {
+                        let left_label = r.cell(|ui| ui.label(tl!(l_label)));
+                        r.cell(|ui| para_number(ui, left, ParaNumber::Length, "left", mixed, &left_label));
+                        let right_label = r.cell(|ui| ui.label(tl!(r_label)));
+                        r.cell(|ui| para_number(ui, right, ParaNumber::Length, "right", mixed, &right_label));
+                    });
+                    t.row(|r| {
+                        let first_label = r.cell(|ui| ui.label(tl!("First line:")));
+                        r.cell(|ui| para_number(ui, first, ParaNumber::Length, "indentFirst", mixed, &first_label));
+                    });
                 });
-                t.row(|r| {
-                    let first_label = r.cell(|ui| ui.label(tl!("First line:")));
-                    r.cell(|ui| para_number(ui, first, ParaNumber::Length, "indentFirst", mixed, &first_label));
-                });
-            });
+            }
             para_check(ui, &mut opts[0], tl!("Mirror indents"), "mirrorIndents", mixed);
             ui.label(egui::RichText::new(tl!("Spacing")).font(semibold(12.5)));
-            crate::rtl::Table::new("sp").columns(4).show(ui, |t| {
-                t.row(|r| {
-                    let before_label = r.cell(|ui| ui.label(tl!("Before:")));
-                    r.cell(|ui| para_number(ui, before, ParaNumber::Points, "spaceBefore", mixed, &before_label));
-                    let line_label = r.cell(|ui| ui.label(tl!("Line spacing:")));
-                    r.cell(|ui| para_number(ui, line, ParaNumber::Lines, "lineSpacing", mixed, &line_label));
+            if phone {
+                let l = ui.label(tl!("Before:"));
+                para_number(ui, before, ParaNumber::Points, "spaceBefore", mixed, &l);
+                let l = ui.label(tl!("After:"));
+                para_number(ui, after, ParaNumber::Points, "spaceAfter", mixed, &l);
+                let l = ui.label(tl!("Line spacing:"));
+                para_number(ui, line, ParaNumber::Lines, "lineSpacing", mixed, &l);
+            } else {
+                crate::rtl::Table::new("sp").columns(4).show(ui, |t| {
+                    t.row(|r| {
+                        let before_label = r.cell(|ui| ui.label(tl!("Before:")));
+                        r.cell(|ui| para_number(ui, before, ParaNumber::Points, "spaceBefore", mixed, &before_label));
+                        let line_label = r.cell(|ui| ui.label(tl!("Line spacing:")));
+                        r.cell(|ui| para_number(ui, line, ParaNumber::Lines, "lineSpacing", mixed, &line_label));
+                    });
+                    t.row(|r| {
+                        let after_label = r.cell(|ui| ui.label(tl!("After:")));
+                        r.cell(|ui| para_number(ui, after, ParaNumber::Points, "spaceAfter", mixed, &after_label));
+                    });
                 });
-                t.row(|r| {
-                    let after_label = r.cell(|ui| ui.label(tl!("After:")));
-                    r.cell(|ui| para_number(ui, after, ParaNumber::Points, "spaceAfter", mixed, &after_label));
-                });
-            });
+            }
             para_check(ui, &mut opts[1], tl!("Don't add space between paragraphs of the same style"), "contextualSpacing", mixed);
         }
         1 => {

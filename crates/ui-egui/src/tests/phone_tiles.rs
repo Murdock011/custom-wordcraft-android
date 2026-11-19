@@ -232,3 +232,23 @@ fn phone_styles_and_line_spacing_pages() {
     tap(&mut h, "Line Spacing…");
     assert!(has_button(&h, "Double Spacing"), "the line spacing choices show");
 }
+
+/// On a phone, Colors offers the shell's 16 swatches and a hex field (no honeycomb), and a swatch
+/// sets the new colour. Font lists its effects as switch rows.
+#[test]
+fn phone_colors_and_font_dialogs_follow_the_shell() {
+    let mut h = harness(false);
+    h.state_mut().run("ui.dialog", json!({"name": "colors"})).unwrap();
+    h.run_steps(4);
+    assert!(has_button(&h, "#92D050"), "the swatch grid shows");
+    assert!(h.query_all_by_label("Hex:").next().is_some(), "the hex field shows");
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "#92D050").click();
+    h.run_steps(2);
+    h.state_mut().run("ui.closeDialog", json!({})).unwrap();
+    h.state_mut().run("ui.dialog", json!({"name": "font"})).unwrap();
+    h.run_steps(4);
+    for effect in ["Bold", "Small caps", "Hidden"] {
+        let node = h.query_all_by_label(effect).next().map(|n| n.rect());
+        assert!(node.is_some_and(|r| r.width() > 300.0), "{effect} is a full-width switch row: {node:?}");
+    }
+}

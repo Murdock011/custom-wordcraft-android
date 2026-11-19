@@ -518,6 +518,10 @@ fn works_without_document(page: &str) -> bool {
 }
 
 fn heading(ui: &mut Ui, s: &str) {
+    // A phone's File page header already names the page.
+    if crate::phone::active(ui.ctx()) {
+        return;
+    }
     ui.label(egui::RichText::new(tl!(s)).font(semibold(26.0)));
     ui.add_space(16.0);
 }
@@ -1036,8 +1040,7 @@ fn save_as_page(app: &mut WordApp, ui: &mut Ui) {
     }
     // A Word template in the user templates folder, which File › New lists under Personal (#2852).
     ui.add_space(8.0);
-    if ui
-        .button(egui::RichText::new(tl!("Save as Word Template…")).font(medium(14.0)))
+    if page_button(ui, tl!("Save as Word Template…"), 14.0)
         .on_hover_text(tl!("Saves a .dotx template in your templates folder. It shows up in File › New under Personal."))
         .clicked()
     {
@@ -1170,8 +1173,13 @@ fn export_page(app: &mut WordApp, ui: &mut Ui) {
         heading(ui, "Print");
         // Print Markup (a print setting, as in Word): the comments beside each page.
         let mut markup = app.session.prefs.print_markup;
-        if ui
-            .checkbox(&mut markup, tl!("Print Markup"))
+        // A phone: a switch row.
+        let resp = if crate::phone::active(ui.ctx()) {
+            crate::phone::toggle_row(ui, &mut markup, tl!("Print Markup"))
+        } else {
+            ui.checkbox(&mut markup, tl!("Print Markup"))
+        };
+        if resp
             .on_hover_text(tl!(
                 "Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text."
             ))
