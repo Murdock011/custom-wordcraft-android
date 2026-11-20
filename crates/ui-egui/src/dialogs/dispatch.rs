@@ -1288,6 +1288,13 @@ fn about_dialog(ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.hyperlink_to(tl!("Source code: github.com/storytold/wordcraft"), "https://github.com/storytold/wordcraft");
             ui.add_space(6.0);
             ui.label(egui::RichText::new(tl!("MIT OR Apache-2.0. Copyright (c) 2026 ArtCraft Team and the WordCraft contributors.")).small().weak());
+            // This fork: the Android version, made on top of the ArtCraft team's WordCraft.
+            ui.add_space(6.0);
+            ui.label(tl!("Android version by Murdock011, a modification of WordCraft. WordCraft itself is the work of the ArtCraft team."));
+            ui.hyperlink_to(
+                tl!("Android source: github.com/Murdock011/custom-wordcraft-android"),
+                "https://github.com/Murdock011/custom-wordcraft-android",
+            );
         }
     }
     // One Close button: About has nothing to cancel.
