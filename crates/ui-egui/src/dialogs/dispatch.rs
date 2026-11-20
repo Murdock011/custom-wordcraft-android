@@ -210,36 +210,57 @@ fn font_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     });
     ui.separator();
     ui.label(egui::RichText::new(tl!("Effects")).font(semibold(12.5)));
-    crate::rtl::Table::new("fx").columns(2).show(ui, |t| {
-        t.row(|r| {
-            r.cell(|ui| ui.checkbox(bold, tl!("Bold")));
-            r.cell(|ui| ui.checkbox(italic, tl!("Italic")));
-        });
-        t.row(|r| {
-            r.cell(|ui| ui.checkbox(underline, tl!("Underline")));
-            r.cell(|ui| ui.checkbox(strike, tl!("Strikethrough")));
-        });
-        t.row(|r| {
-            // Superscript and Subscript exclude each other: the one just ticked wins.
-            let was_sup = *sup;
-            r.cell(|ui| ui.checkbox(sup, tl!("Superscript")));
-            r.cell(|ui| ui.checkbox(sub, tl!("Subscript")));
-            if *sup && *sub {
-                if was_sup {
-                    *sup = false;
-                } else {
-                    *sub = false;
-                }
+    // A phone: the effects as switch rows in one column.
+    if crate::phone::active(ui.ctx()) {
+        crate::phone::toggle_row(ui, bold, tl!("Bold"));
+        crate::phone::toggle_row(ui, italic, tl!("Italic"));
+        crate::phone::toggle_row(ui, underline, tl!("Underline"));
+        crate::phone::toggle_row(ui, strike, tl!("Strikethrough"));
+        let was_sup = *sup;
+        crate::phone::toggle_row(ui, sup, tl!("Superscript"));
+        crate::phone::toggle_row(ui, sub, tl!("Subscript"));
+        if *sup && *sub {
+            if was_sup {
+                *sup = false;
+            } else {
+                *sub = false;
             }
+        }
+        crate::phone::toggle_row(ui, small_caps, tl!("Small caps"));
+        crate::phone::toggle_row(ui, caps, tl!("All caps"));
+        crate::phone::toggle_row(ui, hidden, tl!("Hidden"));
+    } else {
+        crate::rtl::Table::new("fx").columns(2).show(ui, |t| {
+            t.row(|r| {
+                r.cell(|ui| ui.checkbox(bold, tl!("Bold")));
+                r.cell(|ui| ui.checkbox(italic, tl!("Italic")));
+            });
+            t.row(|r| {
+                r.cell(|ui| ui.checkbox(underline, tl!("Underline")));
+                r.cell(|ui| ui.checkbox(strike, tl!("Strikethrough")));
+            });
+            t.row(|r| {
+                // Superscript and Subscript exclude each other: the one just ticked wins.
+                let was_sup = *sup;
+                r.cell(|ui| ui.checkbox(sup, tl!("Superscript")));
+                r.cell(|ui| ui.checkbox(sub, tl!("Subscript")));
+                if *sup && *sub {
+                    if was_sup {
+                        *sup = false;
+                    } else {
+                        *sub = false;
+                    }
+                }
+            });
+            t.row(|r| {
+                r.cell(|ui| ui.checkbox(small_caps, tl!("Small caps")));
+                r.cell(|ui| ui.checkbox(caps, tl!("All caps")));
+            });
+            t.row(|r| {
+                r.cell(|ui| ui.checkbox(hidden, tl!("Hidden")));
+            });
         });
-        t.row(|r| {
-            r.cell(|ui| ui.checkbox(small_caps, tl!("Small caps")));
-            r.cell(|ui| ui.checkbox(caps, tl!("All caps")));
-        });
-        t.row(|r| {
-            r.cell(|ui| ui.checkbox(hidden, tl!("Hidden")));
-        });
-    });
+    }
     // Live preview of the chosen font/size/colour/effects.
     ui.separator();
     ui.label(egui::RichText::new(tl!("Preview")).small().weak());
@@ -322,32 +343,52 @@ fn paragraph_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.label(egui::RichText::new(tl!("Indentation")).font(semibold(12.5)));
             // Mirrored indents are the inside and outside ones (they swap on even pages).
             let (l_label, r_label) = if opts[0] { ("Inside:", "Outside:") } else { ("Left:", "Right:") };
-            crate::rtl::Table::new("ind").columns(4).show(ui, |t| {
-                t.row(|r| {
-                    let left_label = r.cell(|ui| ui.label(tl!(l_label)));
-                    r.cell(|ui| para_number(ui, left, ParaNumber::Length, "left", mixed, &left_label));
-                    let right_label = r.cell(|ui| ui.label(tl!(r_label)));
-                    r.cell(|ui| para_number(ui, right, ParaNumber::Length, "right", mixed, &right_label));
+            let phone = crate::phone::active(ui.ctx());
+            // A phone: one field per row, each label above its field.
+            if phone {
+                for (label, value, key) in
+                    [(l_label, &mut *left, "left"), (r_label, &mut *right, "right"), ("First line:", &mut *first, "indentFirst")]
+                {
+                    let l = ui.label(tl!(label));
+                    para_number(ui, value, ParaNumber::Length, key, mixed, &l);
+                }
+            } else {
+                crate::rtl::Table::new("ind").columns(4).show(ui, |t| {
+                    t.row(|r| {
+                        let left_label = r.cell(|ui| ui.label(tl!(l_label)));
+                        r.cell(|ui| para_number(ui, left, ParaNumber::Length, "left", mixed, &left_label));
+                        let right_label = r.cell(|ui| ui.label(tl!(r_label)));
+                        r.cell(|ui| para_number(ui, right, ParaNumber::Length, "right", mixed, &right_label));
+                    });
+                    t.row(|r| {
+                        let first_label = r.cell(|ui| ui.label(tl!("First line:")));
+                        r.cell(|ui| para_number(ui, first, ParaNumber::Length, "indentFirst", mixed, &first_label));
+                    });
                 });
-                t.row(|r| {
-                    let first_label = r.cell(|ui| ui.label(tl!("First line:")));
-                    r.cell(|ui| para_number(ui, first, ParaNumber::Length, "indentFirst", mixed, &first_label));
-                });
-            });
+            }
             para_check(ui, &mut opts[0], tl!("Mirror indents"), "mirrorIndents", mixed);
             ui.label(egui::RichText::new(tl!("Spacing")).font(semibold(12.5)));
-            crate::rtl::Table::new("sp").columns(4).show(ui, |t| {
-                t.row(|r| {
-                    let before_label = r.cell(|ui| ui.label(tl!("Before:")));
-                    r.cell(|ui| para_number(ui, before, ParaNumber::Points, "spaceBefore", mixed, &before_label));
-                    let line_label = r.cell(|ui| ui.label(tl!("Line spacing:")));
-                    r.cell(|ui| para_number(ui, line, ParaNumber::Lines, "lineSpacing", mixed, &line_label));
+            if phone {
+                let l = ui.label(tl!("Before:"));
+                para_number(ui, before, ParaNumber::Points, "spaceBefore", mixed, &l);
+                let l = ui.label(tl!("After:"));
+                para_number(ui, after, ParaNumber::Points, "spaceAfter", mixed, &l);
+                let l = ui.label(tl!("Line spacing:"));
+                para_number(ui, line, ParaNumber::Lines, "lineSpacing", mixed, &l);
+            } else {
+                crate::rtl::Table::new("sp").columns(4).show(ui, |t| {
+                    t.row(|r| {
+                        let before_label = r.cell(|ui| ui.label(tl!("Before:")));
+                        r.cell(|ui| para_number(ui, before, ParaNumber::Points, "spaceBefore", mixed, &before_label));
+                        let line_label = r.cell(|ui| ui.label(tl!("Line spacing:")));
+                        r.cell(|ui| para_number(ui, line, ParaNumber::Lines, "lineSpacing", mixed, &line_label));
+                    });
+                    t.row(|r| {
+                        let after_label = r.cell(|ui| ui.label(tl!("After:")));
+                        r.cell(|ui| para_number(ui, after, ParaNumber::Points, "spaceAfter", mixed, &after_label));
+                    });
                 });
-                t.row(|r| {
-                    let after_label = r.cell(|ui| ui.label(tl!("After:")));
-                    r.cell(|ui| para_number(ui, after, ParaNumber::Points, "spaceAfter", mixed, &after_label));
-                });
-            });
+            }
             para_check(ui, &mut opts[1], tl!("Don't add space between paragraphs of the same style"), "contextualSpacing", mixed);
         }
         1 => {
@@ -388,6 +429,11 @@ fn paragraph_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     ok || cancel || tabs
 }
 
+/// A label and its field: one above the other on a phone, side by side on the desktop.
+fn stack<R>(ui: &mut Ui, phone: bool, add: impl FnOnce(&mut Ui) -> R) -> R {
+    if phone { ui.vertical(add).inner } else { ui.horizontal(add).inner }
+}
+
 fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     let Dialog::Find { query, replace, match_case, whole_word, regex, extra, tab, goto_what, goto_target, message, focus } = d else {
         return false;
@@ -404,10 +450,13 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         return goto_body(app, ui, goto_what, goto_target, message);
     }
     let replace_mode = *tab == FindTab::Replace;
-    ui.horizontal(|ui| {
+    // A phone: labels above full-width fields, options as switch rows, the buttons pinned below.
+    let phone = crate::phone::active(ui.ctx());
+    let field_w = if phone { f32::INFINITY } else { 240.0 };
+    stack(ui, phone, |ui| {
         let find_label = ui.label(tl!("Find what:"));
         let r = ui
-            .add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(query)).id(egui::Id::unique("find_what")).desired_width(240.0))
+            .add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(query)).id(egui::Id::unique("find_what")).desired_width(field_w))
             .labelled_by(find_label.id);
         if std::mem::take(focus) {
             r.request_focus();
@@ -417,10 +466,10 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         }
     });
     if replace_mode {
-        ui.horizontal(|ui| {
+        stack(ui, phone, |ui| {
             let replace_label = ui.label(tl!("Replace with:"));
             if ui
-                .add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(replace)).desired_width(228.0))
+                .add(crate::phone::touch_edit(ui, egui::TextEdit::singleline(replace)).desired_width(if phone { f32::INFINITY } else { 228.0 }))
                 .labelled_by(replace_label.id)
                 .gained_focus()
             {
@@ -432,11 +481,17 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     }
     // Word greys out Match case and the word options with wildcards (they always match case).
     let plain = !extra.wildcards;
-    ui.horizontal(|ui| {
-        ui.add_enabled_ui(plain, |ui| ui.checkbox(match_case, tl!("Match case")));
-        ui.add_enabled_ui(plain, |ui| ui.checkbox(whole_word, tl!("Whole words")));
-        ui.checkbox(&mut extra.wildcards, tl!("Use wildcards"));
-    });
+    if phone {
+        ui.add_enabled_ui(plain, |ui| crate::phone::toggle_row(ui, match_case, tl!("Match case")));
+        ui.add_enabled_ui(plain, |ui| crate::phone::toggle_row(ui, whole_word, tl!("Whole words")));
+        crate::phone::toggle_row(ui, &mut extra.wildcards, tl!("Use wildcards"));
+    } else {
+        ui.horizontal(|ui| {
+            ui.add_enabled_ui(plain, |ui| ui.checkbox(match_case, tl!("Match case")));
+            ui.add_enabled_ui(plain, |ui| ui.checkbox(whole_word, tl!("Whole words")));
+            ui.checkbox(&mut extra.wildcards, tl!("Use wildcards"));
+        });
+    }
     let arrow = if extra.more { "▾" } else { "▸" };
     if ui.selectable_label(extra.more, format!("{arrow} {}", tl!("Search Options"))).clicked() {
         extra.more = !extra.more;
@@ -487,6 +542,30 @@ fn find_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         ui.label(egui::RichText::new(message.as_str()).weak());
     }
     let mut close = false;
+    if phone {
+        // Pinned below: Find (Close and Find Next), or Replace (Replace All, Replace, Find Next).
+        let labels: Vec<&str> =
+            if replace_mode { vec![tl!("Replace All"), tl!("Replace"), tl!("Find Next")] } else { vec![tl!("Close"), tl!("Find Next")] };
+        let primary = labels.len() - 1;
+        if let Some(clicked) = crate::dialogs::footer_row(ui, &labels, primary, true) {
+            match (replace_mode, clicked) {
+                (true, Some(0)) => match app.run("edit.replaceAll", opts.clone()) {
+                    Ok(r) => *message = format!("All done. We made {} replacements.", r["replaced"]),
+                    Err(e) => *message = e,
+                },
+                (true, Some(1)) => {
+                    let _ = app.run("edit.replace", opts.clone());
+                }
+                (false, Some(0)) => close = true,
+                (_, Some(_)) => match app.run("edit.findNext", opts.clone()) {
+                    Ok(r) => *message = format!("Match {} of {}", r["index"].as_u64().unwrap_or(0) + 1, r["count"]),
+                    Err(e) => *message = e,
+                },
+                (_, None) => {}
+            }
+            return close;
+        }
+    }
     ui.horizontal(|ui| {
         if replace_mode {
             if ui.button(tl!("Replace All")).clicked() {
@@ -1209,6 +1288,13 @@ fn about_dialog(ui: &mut Ui, d: &mut Dialog) -> bool {
             ui.hyperlink_to(tl!("Source code: github.com/storytold/wordcraft"), "https://github.com/storytold/wordcraft");
             ui.add_space(6.0);
             ui.label(egui::RichText::new(tl!("MIT OR Apache-2.0. Copyright (c) 2026 ArtCraft Team and the WordCraft contributors.")).small().weak());
+            // This fork: the Android version, made on top of the ArtCraft team's WordCraft.
+            ui.add_space(6.0);
+            ui.label(tl!("Android version by Murdock011, a modification of WordCraft. WordCraft itself is the work of the ArtCraft team."));
+            ui.hyperlink_to(
+                tl!("Android source: github.com/Murdock011/custom-wordcraft-android"),
+                "https://github.com/Murdock011/custom-wordcraft-android",
+            );
         }
     }
     // One Close button: About has nothing to cancel.

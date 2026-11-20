@@ -107,6 +107,36 @@ fn phone_long_press_opens_the_selection_menu() {
     assert!(a.canvas.context_menu_open, "the long press opens the selection menu");
 }
 
+/// A long press on a misspelt word offers that word's suggestions, even when the caret was on an
+/// earlier misspelt word, and Change replaces the pressed word, not the earlier one.
+#[test]
+fn phone_long_press_suggests_for_the_pressed_word() {
+    let (_ctx, mut frame) = phone_frames(400.0);
+    let mut a = app();
+    a.run("text.insert", json!({"text": "wrold people themselfs"})).unwrap();
+    // The caret on the first misspelt word, with its suggestions read, as an earlier menu left them.
+    a.run("caret.docStart", json!({})).unwrap();
+    a.canvas.context_issue = a.session.run("review.suggestions", &json!({})).ok().filter(|v| !v.is_null());
+    for _ in 0..30 {
+        frame(&mut a, Vec::new());
+    }
+    let page = a.canvas.page_rects.first().copied().expect("the canvas laid out");
+    // Over "themselfs" (after "wrold people " on the first line).
+    let at = egui::pos2(page.left() + 130.0, page.top() + 20.0);
+    phone_press(&mut a, &mut frame, at, 40);
+    for _ in 0..3 {
+        frame(&mut a, Vec::new());
+    }
+    assert_eq!(a.session.selected_text().trim(), "themselfs", "the long press selects the pressed word");
+    let issue = a.canvas.context_issue.clone().expect("the pressed word has suggestions");
+    assert_eq!(issue.get("text").and_then(|v| v.as_str()), Some("themselfs"), "the suggestions are for the pressed word");
+    // Change, after the caret moved elsewhere: the pressed word is replaced, the first word kept.
+    a.run("caret.docStart", json!({})).unwrap();
+    crate::phone::apply_suggestion(&mut a, &issue, "themselves");
+    let text = a.session.doc.plain_text(wordcraft_doc::StoryRef::Body);
+    assert_eq!(text, "wrold people themselves", "Change lands on the pressed word: {text}");
+}
+
 /// Phone frames for the tests below: a screen of `w` by 800 points, `frame` runs one frame.
 fn phone_frames(w: f32) -> (egui::Context, impl FnMut(&mut WordApp, Vec<egui::Event>)) {
     let ctx = egui::Context::default();
@@ -202,8 +232,9 @@ fn phone_tab_sheet_keeps_touches_on_itself() {
     phone::open_menu(&mut a, &ctx, 0);
     frame(&mut a, Vec::new());
     let before = a.session.sel.clone();
-    // The sheet's top edge (its drag handle) is at 800 - 0.55 * 800 = 360.
-    phone_press(&mut a, &mut frame, egui::pos2(200.0, 362.0), 40);
+    // Just inside the sheet's top edge (in either style).
+    let sheet = phone::sheet_rect(&ctx).expect("the sheet is laid out");
+    phone_press(&mut a, &mut frame, egui::pos2(200.0, sheet.top() + 2.0), 40);
     assert!(phone::sheet_open(&ctx), "a press on the sheet keeps it open");
     assert_eq!(a.session.sel, before, "the page got no press");
 }
@@ -621,7 +652,7 @@ fn phone_handle_press_off_centre_does_not_move_the_selection() {
 }
 
 /// Home with nothing open (the Start screen, or after the document is closed) has no document to
-/// go back to: Back, and the back arrow, make a blank document as Blank document does, not an
+/// go back to: Back (twice: the page, then the File menu), and the back arrow, make a blank document as Blank document does, not an
 /// empty window.
 #[test]
 fn phone_back_from_home_with_nothing_open_makes_a_blank_document() {
@@ -633,9 +664,12 @@ fn phone_back_from_home_with_nothing_open_makes_a_blank_document() {
     }
     assert!(a.ui.backstage && !a.has_document(), "Home with nothing open");
     let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
-    frame(&mut a, vec![esc]);
-    for _ in 0..3 {
-        frame(&mut a, Vec::new());
+    // Back goes from the page to the File menu, then to the document.
+    for _ in 0..2 {
+        frame(&mut a, vec![esc.clone()]);
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
     }
     assert!(!a.ui.backstage, "Back leaves Home");
     assert!(a.has_document(), "Back makes a blank document, not an empty window");
@@ -648,7 +682,9 @@ fn phone_back_from_home_with_nothing_open_makes_a_blank_document() {
     for _ in 0..30 {
         frame(&mut b, Vec::new());
     }
-    phone_press(&mut b, &mut frame, egui::pos2(370.0, 28.0), 3);
+    // The back arrow at the left of the File view's header: page, then menu, then the document.
+    phone_press(&mut b, &mut frame, egui::pos2(30.0, 28.0), 3);
+    phone_press(&mut b, &mut frame, egui::pos2(30.0, 28.0), 3);
     assert!(!b.ui.backstage, "the back arrow leaves Home");
     assert!(b.has_document(), "the back arrow makes a blank document");
 }
@@ -665,9 +701,11 @@ fn phone_back_from_recover_with_nothing_open_makes_a_blank_document() {
     }
     assert!(a.ui.backstage && !a.has_document(), "Recover with nothing open");
     let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
-    frame(&mut a, vec![esc]);
-    for _ in 0..3 {
-        frame(&mut a, Vec::new());
+    for _ in 0..2 {
+        frame(&mut a, vec![esc.clone()]);
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
     }
     assert!(!a.ui.backstage, "Back leaves the Backstage");
     assert!(a.has_document(), "Back makes a blank document, not an empty window");
@@ -684,9 +722,11 @@ fn phone_back_from_home_with_a_document_keeps_it() {
         frame(&mut a, Vec::new());
     }
     let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
-    frame(&mut a, vec![esc]);
-    for _ in 0..3 {
-        frame(&mut a, Vec::new());
+    for _ in 0..2 {
+        frame(&mut a, vec![esc.clone()]);
+        for _ in 0..3 {
+            frame(&mut a, Vec::new());
+        }
     }
     assert!(!a.ui.backstage, "Back returns to the editor");
     assert_eq!(a.session.doc.plain_text(wordcraft_doc::StoryRef::Body), "Work", "the open document is kept");
@@ -838,12 +878,17 @@ fn phone_dialog_controls_fit_the_screen() {
 }
 
 /// The phone's File pages use touch-sized controls: Export's format rows, the Print page's Save
-/// button, Info's Advanced Properties, and Open's Browse are 48 pt tall and fit the 412 pt screen.
+/// button (Save as PDF), Save As's template button, Info's Advanced Properties, and Open's Browse are
+/// 48 pt tall and fit the 412 pt screen.
 #[test]
 fn phone_file_pages_are_touch_sized() {
-    for (page, label) in
-        [("export", "PDF document (*.pdf)"), ("print", "Save these pages as PDF…"), ("info", "Advanced Properties…"), ("open", "Browse…")]
-    {
+    for (page, label) in [
+        ("export", "PDF document (*.pdf)"),
+        ("print", "Save as PDF"),
+        ("saveAs", "Save as Word Template…"),
+        ("info", "Advanced Properties…"),
+        ("open", "Browse…"),
+    ] {
         let mut a = app();
         a.run("ui.backstage", json!({"value": true, "page": page})).unwrap();
         let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(412.0, 915.0)).build_ui_state(

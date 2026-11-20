@@ -111,14 +111,16 @@ pub fn icon_menu_item(ui: &mut Ui, icon: &str, text: &str, shortcut: &str, min_w
 /// A strip of dialog tabs. The active tab joins the page below it.
 /// Returns the index of the tab the user clicked.
 pub fn dialog_tabs(ui: &mut Ui, labels: &[String], selected: usize) -> Option<usize> {
-    const H: f32 = 26.0;
+    // A phone's tabs are 48 pt tall touch targets with larger text.
+    let phone = crate::phone::active(ui.ctx());
+    let (h, size) = if phone { (crate::phone::TOUCH_H, 15.0) } else { (26.0, 12.5) };
     let t = Tokens::get(ui.ctx());
     let page = ui.visuals().window_fill;
-    let need: f32 = labels.iter().map(|l| ui.painter().layout_no_wrap(l.clone(), regular(12.5), t.text).size().x + 27.0).sum::<f32>() + 1.0;
+    let need: f32 = labels.iter().map(|l| ui.painter().layout_no_wrap(l.clone(), regular(size), t.text).size().x + 27.0).sum::<f32>() + 1.0;
     ui.set_min_width(need);
     let origin = ui.cursor().min;
     let width = ui.available_width();
-    let base_y = origin.y + H;
+    let base_y = origin.y + h;
     let base = ui.painter().add(egui::Shape::Noop);
     let top = CornerRadius { nw: 5, ne: 5, sw: 0, se: 0 };
     // Right to left, the tabs start at the right edge and run leftwards.
@@ -127,7 +129,7 @@ pub fn dialog_tabs(ui: &mut Ui, labels: &[String], selected: usize) -> Option<us
     let mut clicked = None;
     for (i, label) in labels.iter().enumerate() {
         let on = i == selected;
-        let galley = ui.painter().layout_no_wrap(label.clone(), regular(12.5), t.text);
+        let galley = ui.painter().layout_no_wrap(label.clone(), regular(size), t.text);
         let w = galley.size().x + 28.0;
         let left = if rtl { x - w } else { x };
         let r = Rect::from_min_max(pos2(left, origin.y + 2.0), pos2(left + w, base_y));
@@ -148,7 +150,7 @@ pub fn dialog_tabs(ui: &mut Ui, labels: &[String], selected: usize) -> Option<us
         }
         x += if rtl { 1.0 - w } else { w - 1.0 };
     }
-    ui.allocate_space(vec2(width, H + 1.0));
+    ui.allocate_space(vec2(width, h + 1.0));
     ui.painter().set(base, egui::Shape::line_segment([pos2(origin.x, base_y), pos2(origin.x + width, base_y)], Stroke::new(1.0, t.border)));
     clicked
 }

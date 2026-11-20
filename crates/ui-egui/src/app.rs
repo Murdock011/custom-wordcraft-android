@@ -461,7 +461,7 @@ impl WordApp {
         // On a phone, Escape in an open Options category goes back to its list (options::phone_page).
         if ctx_escape && self.ui.backstage && !options::phone_category_open(ui.ctx()) {
             if phone::active(ui.ctx()) {
-                crate::backstage::back_from_home(self);
+                crate::backstage::phone_back(self, ui.ctx());
             } else {
                 self.ui.backstage = false;
             }
@@ -469,6 +469,7 @@ impl WordApp {
         // The list shows whenever Backstage is opened again.
         if !self.ui.backstage {
             options::set_phone_category_open(ui.ctx(), false);
+            crate::backstage::close_phone_menu(ui.ctx());
         }
         let ctx = ui.ctx().clone();
         self.phone = phone::active(&ctx);

@@ -28,6 +28,11 @@ impl WordApp {
         ui
     }
 
+    /// [`WordApp::prefs`] as `ui.json` bytes, for a host that keeps them itself (Android).
+    pub fn prefs_json(&self) -> Option<Vec<u8>> {
+        serde_json::to_vec_pretty(&self.prefs()).ok()
+    }
+
     /// Restore preferences saved by [`WordApp::prefs`].
     pub fn apply_prefs(&mut self, ui: UiState) {
         self.ui = ui;

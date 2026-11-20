@@ -87,6 +87,7 @@ impl WordApp {
                 self.phone_fitted = true;
                 let _ = self.run("view.webLayout", json!({}));
             }
+            phone::follow_theme(self, ctx);
             phone::top_bar(self, ui);
             crate::language_packs::bar(self, ui);
             phone::status_line(self, ui);

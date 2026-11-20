@@ -10,10 +10,25 @@ use crate::WordApp;
 use crate::icons;
 use crate::theme::{medium, regular};
 
+mod tiles;
+mod tools;
+
+/// Opens All tools on Search (Search Commands on a phone).
+pub(crate) fn open_tools_search(ctx: &Context) {
+    tools::open_search(ctx);
+}
+
 /// Windows narrower than this (points) get the phone layout. A phone held upright is about 390 pt.
 pub const MAX_WIDTH: f32 = 600.0;
-/// Height of the top app bar (Material's small app bar).
+/// Height of the top app bar (Material's small app bar), and in a window under 500 pt tall (a phone
+/// turned sideways), where the page needs the room.
 const APP_BAR_H: f32 = 64.0;
+const APP_BAR_H_SHORT: f32 = 48.0;
+
+/// The top bar's height in this window.
+fn app_bar_h(ctx: &Context) -> f32 {
+    if ctx.content_rect().height() < 500.0 { APP_BAR_H_SHORT } else { APP_BAR_H }
+}
 /// A Material icon button: 48 pt, the platform's touch target.
 const ICON_BTN: f32 = 48.0;
 /// The height of a list row (`list_row`): the Android minimum touch target, so it cannot go lower.
@@ -127,24 +142,29 @@ fn text_button(ui: &mut Ui, m: Md, label: &str, color: Color32, min_w: f32) -> e
     resp
 }
 
-/// The top app bar: File (the Backstage), the document's name, and undo, redo and search.
+/// The top app bar: File (the Backstage), the document's name (with ` •` while it has unsaved
+/// changes), then Undo, Redo and Save. Search is in the More sheet. In Read mode the page turns and
+/// Edit Document take the place of Undo, Redo and Save.
 pub fn top_bar(app: &mut WordApp, ui: &mut Ui) {
     let m = md(ui.ctx());
-    let title = if app.has_document() { app.title_stem() } else { "WordCraft".to_string() };
-    Panel::top("phone_top_bar").exact_size(APP_BAR_H).frame(egui::Frame::NONE.fill(m.surface).inner_margin(Margin::symmetric(4, 0))).show(ui, |ui| {
+    let title = if app.has_document() {
+        let stem = app.title_stem();
+        if app.session.dirty { format!("{stem} •") } else { stem }
+    } else {
+        "WordCraft".to_string()
+    };
+    let height = app_bar_h(ui.ctx());
+    Panel::top("phone_top_bar").exact_size(height).frame(egui::Frame::NONE.fill(m.surface).inner_margin(Margin::symmetric(4, 0))).show(ui, |ui| {
         ui.horizontal_centered(|ui| {
             if icon_button(ui, m, "file", "File").clicked() {
                 let _ = app.run("ui.backstage", json!({"value": true}));
+                crate::backstage::open_phone_menu(ui.ctx());
             }
-            // The name gets what the icons on the right leave, and is cut short. Read mode has four
-            // icons there (Search, Edit Document, Next, Previous), editing three (Search, Redo, Undo).
-            let icons_right = if app.session.view.read_mode { 4.0 } else { 3.0 };
-            let name_w = (ui.available_width() - icons_right * ICON_BTN - 8.0).max(0.0);
-            ui.add_sized(vec2(name_w, ICON_BTN), egui::Label::new(egui::RichText::new(title).font(medium(20.0)).color(m.on_surface)).truncate());
+            // The name gets what the icons on the right leave, and is cut short. Three icons are on
+            // the right: Undo, Redo and Save, or in Read mode Edit Document, Next and Previous.
+            let name_w = (ui.available_width() - 3.0 * ICON_BTN - 8.0).max(0.0);
+            ui.add_sized(vec2(name_w, ICON_BTN), egui::Label::new(egui::RichText::new(title).font(medium(18.0)).color(m.on_surface)).truncate());
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                if icon_button(ui, m, "find", "Search").clicked() {
-                    let _ = app.run("ui.dialog", json!({"name": "commands"}));
-                }
                 if app.session.view.read_mode {
                     // Reading: the page turns and Edit Document take the place of Undo and Redo.
                     if icon_button(ui, m, "printLayout", "Edit Document").clicked() {
@@ -162,16 +182,41 @@ pub fn top_bar(app: &mut WordApp, ui: &mut Ui) {
                         }
                     });
                 } else {
-                    if icon_button(ui, m, "redo", "Redo").clicked() {
-                        run(app, "edit.redo");
-                    }
-                    if icon_button(ui, m, "undo", "Undo").clicked() {
-                        run(app, "edit.undo");
-                    }
+                    let can_save = app.has_document() && crate::widgets::enabled(app, "file.save");
+                    ui.add_enabled_ui(can_save, |ui| {
+                        if icon_button(ui, m, "save", "Save").clicked() {
+                            run(app, "file.save");
+                        }
+                    });
+                    let (undo, redo) = (app.session.can_undo(), app.session.can_redo());
+                    ui.add_enabled_ui(redo, |ui| {
+                        if icon_button(ui, m, "redo", "Redo").clicked() {
+                            run(app, "edit.redo");
+                        }
+                    });
+                    ui.add_enabled_ui(undo, |ui| {
+                        if icon_button(ui, m, "undo", "Undo").clicked() {
+                            run(app, "edit.undo");
+                        }
+                    });
                 }
             });
         });
     });
+}
+
+/// Dark theme is app wide on a phone: when the interface turns dark (the setting, or the phone's
+/// dark theme with System), the page turns dark too (View › Switch Modes), and back to light with
+/// it. Only a change of theme moves the page, so Switch Modes still works on its own.
+pub fn follow_theme(app: &mut WordApp, ctx: &Context) {
+    let dark = ctx.global_style().visuals.dark_mode;
+    let id = egui::Id::unique("phone_theme_was_dark");
+    let was = ctx.data(|d| d.get_temp::<bool>(id));
+    ctx.data_mut(|d| d.insert_temp(id, dark));
+    // The first phone frame counts as a change, so a dark start opens on a dark page.
+    if was != Some(dark) && app.session.view.dark_mode != dark {
+        let _ = app.run("view.darkMode", json!({"value": dark}));
+    }
 }
 
 /// How long a status message stays on the phone. The desktop status bar keeps it for the same time.
@@ -190,7 +235,7 @@ pub fn status_line(app: &WordApp, ui: &mut Ui) {
     let m = md(&ctx);
     let screen = ctx.content_rect();
     let width = (screen.width() - 2.0 * FLOAT_GAP).max(0.0);
-    let pos = Pos2::new(screen.left() + FLOAT_GAP, screen.top() + APP_BAR_H + 8.0);
+    let pos = Pos2::new(screen.left() + FLOAT_GAP, screen.top() + app_bar_h(&ctx) + 8.0);
     egui::Area::new(egui::Id::unique("phone_status")).fixed_pos(pos).order(Order::Foreground).interactable(false).show(&ctx, |ui| {
         egui::Frame::NONE.fill(m.surface_high).corner_radius(CornerRadius::same(8)).shadow(elevation()).inner_margin(Margin::symmetric(12, 8)).show(
             ui,
@@ -393,8 +438,14 @@ fn menu_id() -> egui::Id {
 }
 
 /// Where the open tab sheet's panel was drawn last. It lets a press outside it be told apart.
-fn sheet_rect_id() -> egui::Id {
+pub(super) fn sheet_rect_id() -> egui::Id {
     egui::Id::unique("phone_menu_rect")
+}
+
+/// Where the open sheet was drawn last frame.
+#[cfg(test)]
+pub(crate) fn sheet_rect(ctx: &Context) -> Option<Rect> {
+    ctx.data(|d| d.get_temp::<Rect>(sheet_rect_id()))
 }
 
 /// Whether a phone menu owns the pointer this frame. An open sheet takes its own area, and a press
@@ -408,9 +459,14 @@ pub(crate) fn take_pointer(ctx: &Context, selection_menu_open: bool, outside_sel
         ctx.data_mut(|d| d.remove::<bool>(gesture));
         return false;
     }
+    // A press on the Tiles style's tab bar is the tab bar's alone: the page under it gets nothing.
+    if pressed && tiles::on_tab_bar(ctx, pos) {
+        ctx.data_mut(|d| d.insert_temp(gesture, true));
+        return true;
+    }
     if pressed {
         let rect = ctx.data(|d| d.get_temp::<Rect>(sheet_rect_id()));
-        let outside_sheet = sheet_open(ctx) && matches!((pos, rect), (Some(p), Some(r)) if !r.contains(p));
+        let outside_sheet = sheet_open(ctx) && !tiles::on_tab_bar(ctx, pos) && matches!((pos, rect), (Some(p), Some(r)) if !r.contains(p));
         if outside_sheet || (selection_menu_open && outside_selection_menu) {
             set_menu(ctx, None);
             ctx.data_mut(|d| d.insert_temp(gesture, true));
@@ -463,7 +519,14 @@ const PILL_R: u8 = (PILL_H / 2.0) as u8;
 
 /// Space the floating bar takes from the bottom of the view: the page keeps the caret above it.
 pub fn bar_clearance(ctx: &Context, read_mode: bool) -> f32 {
-    if read_mode || pill_hidden(ctx) { 0.0 } else { PILL_H + FLOAT_GAP }
+    // The Tiles style's tab bar is a panel: the page already ends above it.
+    let tab_bar = ctx.data(|d| d.get_temp::<bool>(tiles_style_id())).unwrap_or(false) && !keyboard_up_now(ctx);
+    if read_mode || pill_hidden(ctx) || tab_bar { 0.0 } else { PILL_H + FLOAT_GAP }
+}
+
+/// Whether the Tiles style drew the bottom of the screen last frame (it has no floating bar).
+fn tiles_style_id() -> egui::Id {
+    egui::Id::unique("phone_tiles_style")
 }
 
 /// A phone turned sideways with the keyboard up has a band too short for the floating bar: the bar
@@ -476,7 +539,7 @@ pub fn pill_hidden(ctx: &Context) -> bool {
 /// keyboard while it is up. It never sits under the app bar.
 fn bar_top(ctx: &Context) -> f32 {
     let screen = ctx.content_rect();
-    (screen.bottom() - FLOAT_GAP - PILL_H).max(screen.top() + APP_BAR_H)
+    (screen.bottom() - FLOAT_GAP - PILL_H).max(screen.top() + app_bar_h(ctx))
 }
 
 /// The floating toolbar: formats, lists, insert and undo in groups, scrolled sideways when they
@@ -507,102 +570,132 @@ pub fn bottom_bar(app: &mut WordApp, ui: &mut Ui) {
     }
     // The keyboard coming up closes the menu: the two never show together. The comment field is the
     // exception: its keyboard is what the sheet is for.
-    let typing = matches!(sub(&ctx), Some(Sub::CommentInput));
+    // All tools' Search and forms type too.
+    let typing = matches!(sub(&ctx), Some(Sub::CommentInput)) || menu_tab(&ctx) == Some(tools::TOOLS);
     let open = if keyboard_rising(&ctx) && !typing {
         set_menu(&ctx, None);
         None
     } else {
         // A contextual tab goes away with its object (the table, the picture): fall back to Home.
         let shown = shown_tabs(app);
-        menu_tab(&ctx).map(|t| if shown.get(t).copied().unwrap_or(false) { t } else { 0 })
+        menu_tab(&ctx).map(|t| if t == tiles::MORE || t == tools::TOOLS || shown.get(t).copied().unwrap_or(false) { t } else { 0 })
     };
-    // With the menu open it takes the bottom of the screen, and the toolbar hides.
-    if let Some(tab) = open {
+    ctx.data_mut(|d| d.insert_temp(tiles_style_id(), !app.ui.phone_list_style));
+    // All tools takes the bottom of the screen in either style, above the keyboard while it types.
+    if open == Some(tools::TOOLS) {
+        return tiles::tools_sheet(app, ui);
+    }
+    // The Tiles style (the default): the tab bar and its tile sheets, while the keyboard is down.
+    // While the user types, the floating bar below is the keyboard bar.
+    if !app.ui.phone_list_style && !keyboard_up_now(&ctx) {
+        if app.canvas.context_menu_open && menu_tab(&ctx).is_none() {
+            return;
+        }
+        return tiles::bottom(app, ui, open);
+    }
+    // With the menu open it takes the bottom of the screen, and the toolbar hides. More is a
+    // Tiles sheet: the List style shows Home in its place.
+    if let Some(tab) = open.map(|t| if t == tiles::MORE { 0 } else { t }) {
         return menu(app, ui, tab);
     }
     if app.canvas.context_menu_open {
         return;
     }
-    let width = (ctx.content_rect().width() - 2.0 * FLOAT_GAP).max(0.0);
-    let pos = Pos2::new(ctx.content_rect().left() + FLOAT_GAP, bar_top(&ctx));
+    // The Tiles style's keyboard bar (it shows only while the keyboard is up): full width, docked
+    // on the keyboard, with Hide Keyboard at its right end. The List style keeps the floating pill.
+    let keyboard_bar = !app.ui.phone_list_style;
+    let screen = ctx.content_rect();
+    let (width, pos) = if keyboard_bar {
+        (screen.width(), Pos2::new(screen.left(), (screen.bottom() - PILL_H).max(screen.top() + app_bar_h(&ctx))))
+    } else {
+        ((screen.width() - 2.0 * FLOAT_GAP).max(0.0), Pos2::new(screen.left() + FLOAT_GAP, bar_top(&ctx)))
+    };
+    let (radius, shadow, fill) =
+        if keyboard_bar { (CornerRadius::ZERO, egui::Shadow::NONE, m.surface) } else { (CornerRadius::same(PILL_R), elevation(), m.surface_high) };
     egui::Area::new(egui::Id::unique("phone_quick_bar")).fixed_pos(pos).order(Order::Foreground).show(&ctx, |ui| {
-        egui::Frame::NONE
-            .fill(m.surface_high)
-            .corner_radius(CornerRadius::same(PILL_R))
-            .shadow(elevation())
-            .inner_margin(Margin::symmetric(8, 4))
-            .show(ui, |ui| {
-                ui.set_width((width - 16.0).max(0.0));
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    let middle = (width - 16.0 - ICON_BTN - 8.0).max(ICON_BTN);
-                    // Centred when the groups fit: the last frame's width says how far to indent.
-                    let used_id = egui::Id::unique("phone_bar_used");
-                    let used = ctx.data(|d| d.get_temp::<f32>(used_id)).unwrap_or(0.0);
-                    egui::ScrollArea::horizontal()
-                        .id_salt("quick_bar_items")
-                        .max_width(middle)
-                        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 0.0;
-                                ui.add_space(((middle - used) / 2.0).max(0.0));
-                                let start = ui.cursor().left();
-                                for (icon, label, id) in [
-                                    ("bold", "Bold", "format.bold"),
-                                    ("italic", "Italic", "format.italic"),
-                                    ("underline", "Underline", "format.underline"),
-                                ] {
-                                    if icon_button(ui, m, icon, label).clicked() {
-                                        run(app, id);
-                                    }
+        egui::Frame::NONE.fill(fill).corner_radius(radius).shadow(shadow).inner_margin(Margin::symmetric(8, 4)).show(ui, |ui| {
+            if keyboard_bar {
+                let top = ui.max_rect().top() - 4.0;
+                ui.painter().hline(pos.x..=pos.x + width, top, egui::Stroke::new(1.0, m.outline_variant));
+            }
+            ui.set_width((width - 16.0).max(0.0));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                let middle = (width - 16.0 - ICON_BTN - 8.0).max(ICON_BTN);
+                // Centred when the groups fit: the last frame's width says how far to indent.
+                let used_id = egui::Id::unique("phone_bar_used");
+                let used = ctx.data(|d| d.get_temp::<f32>(used_id)).unwrap_or(0.0);
+                egui::ScrollArea::horizontal()
+                    .id_salt("quick_bar_items")
+                    .max_width(middle)
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            ui.add_space(((middle - used) / 2.0).max(0.0));
+                            let start = ui.cursor().left();
+                            for (icon, label, id) in [
+                                ("bold", "Bold", "format.bold"),
+                                ("italic", "Italic", "format.italic"),
+                                ("underline", "Underline", "format.underline"),
+                            ] {
+                                if icon_button(ui, m, icon, label).clicked() {
+                                    run(app, id);
                                 }
-                                if icon_button(ui, m, "highlight", "Highlight").clicked() {
-                                    run(app, "format.highlight");
+                            }
+                            if icon_button(ui, m, "highlight", "Highlight").clicked() {
+                                run(app, "format.highlight");
+                            }
+                            if icon_button(ui, m, "fontcolor", "Font Color").clicked() {
+                                run(app, "ui.colors");
+                            }
+                            divider(ui, m);
+                            for (icon, label, id) in [
+                                ("bullets", "Bullets", "para.bullets"),
+                                ("numbering", "Numbering", "para.numbering"),
+                                ("outdent", "Decrease Indent", "para.outdent"),
+                                ("indentLeft", "Increase Indent", "para.indent"),
+                            ] {
+                                if icon_button(ui, m, icon, label).clicked() {
+                                    run(app, id);
                                 }
-                                if icon_button(ui, m, "fontcolor", "Font Color").clicked() {
-                                    run(app, "ui.colors");
-                                }
-                                divider(ui, m);
-                                for (icon, label, id) in [
-                                    ("bullets", "Bullets", "para.bullets"),
-                                    ("numbering", "Numbering", "para.numbering"),
-                                    ("outdent", "Decrease Indent", "para.outdent"),
-                                    ("indentLeft", "Increase Indent", "para.indent"),
-                                ] {
-                                    if icon_button(ui, m, icon, label).clicked() {
-                                        run(app, id);
-                                    }
-                                }
-                                divider(ui, m);
-                                if icon_button(ui, m, "comment", "New Comment").clicked() {
-                                    set_menu(&ctx, Some(1));
-                                    comment_field(&ctx, CommentTarget::New);
-                                }
-                                if icon_button(ui, m, "link", "Link").clicked() {
-                                    let _ = app.run("ui.dialog", json!({"name": "link"}));
-                                }
-                                if icon_button(ui, m, "picture", "Picture").clicked() {
-                                    run(app, "insert.picture");
-                                }
-                                if icon_button(ui, m, "table", "Table").clicked() {
-                                    run(app, "insert.table");
-                                }
-                                divider(ui, m);
-                                if icon_button(ui, m, "undo", "Undo").clicked() {
-                                    run(app, "edit.undo");
-                                }
-                                let used = ui.cursor().left() - start;
-                                ctx.data_mut(|d| d.insert_temp(used_id, used));
-                            });
+                            }
+                            divider(ui, m);
+                            if icon_button(ui, m, "comment", "New Comment").clicked() {
+                                set_menu(&ctx, Some(1));
+                                comment_field(&ctx, CommentTarget::New);
+                            }
+                            if icon_button(ui, m, "link", "Link").clicked() {
+                                let _ = app.run("ui.dialog", json!({"name": "link"}));
+                            }
+                            if icon_button(ui, m, "picture", "Picture").clicked() {
+                                run(app, "insert.picture");
+                            }
+                            if icon_button(ui, m, "table", "Table").clicked() {
+                                run(app, "insert.table");
+                            }
+                            divider(ui, m);
+                            if icon_button(ui, m, "undo", "Undo").clicked() {
+                                run(app, "edit.undo");
+                            }
+                            let used = ui.cursor().left() - start;
+                            ctx.data_mut(|d| d.insert_temp(used_id, used));
                         });
-                    divider(ui, m);
-                    // Fixed at the right: ⋮ opens the menu.
-                    if icon_button(ui, m, "more", "More").clicked() {
-                        open_menu(app, &ctx, 0);
+                    });
+                divider(ui, m);
+                if keyboard_bar {
+                    // Fixed at the right: Hide Keyboard hands the focus back, and the tab bar returns.
+                    if icon_button(ui, m, "chevronDown", "Hide Keyboard").clicked() {
+                        app.canvas.want_focus = false;
+                        app.canvas.focused = false;
+                        ctx.request_repaint();
                     }
-                });
+                } else if icon_button(ui, m, "more", "More").clicked() {
+                    // Fixed at the right: ⋮ opens the menu.
+                    open_menu(app, &ctx, 0);
+                }
             });
+        });
     });
 }
 
@@ -613,7 +706,9 @@ pub fn can_go_back(ctx: &Context) -> bool {
 
 /// Escape or Back: closes the innermost open part of the sheet (its page first, then the sheet).
 pub fn back_step(ctx: &Context) {
-    if sub(ctx).is_some() {
+    if menu_tab(ctx) == Some(tools::TOOLS) {
+        tools::back(ctx);
+    } else if sub(ctx).is_some() {
         sub_back(ctx);
     } else {
         set_menu(ctx, None);
@@ -640,6 +735,19 @@ pub fn context_menu(app: &mut WordApp, ui: &mut Ui) {
         if list_row(ui, m, crate::tl!("Back"), "chevronLeft", false).clicked() {
             ctx.data_mut(|d| d.insert_temp(more_id, false));
         }
+        if list_row(ui, m, crate::tl!("New Comment"), "comment", false).clicked() {
+            set_menu(&ctx, Some(3));
+            comment_field(&ctx, CommentTarget::New);
+            ui.close();
+        }
+        // The contextual sheet for the object under the selection: a table or a picture.
+        let shown = shown_tabs(app);
+        for (tab, label, icon) in [(TABLE_TAB, "Table…", "table"), (PICTURE_TAB, "Picture…", "picture")] {
+            if shown.get(tab).copied().unwrap_or(false) && list_row(ui, m, crate::tl!(label), icon, true).clicked() {
+                open_menu(app, &ctx, tab);
+                ui.close();
+            }
+        }
         for (label, icon, id, params) in [
             ("Keep Text Only", "paste", "edit.pasteText", json!({})),
             ("Merge Formatting", "paste", "edit.pasteMerge", json!({})),
@@ -665,7 +773,7 @@ pub fn context_menu(app: &mut WordApp, ui: &mut Ui) {
             ui.horizontal(|ui| {
                 for sgt in sugg.iter().take(3) {
                     if ui.button(egui::RichText::new(sgt).strong()).clicked() {
-                        let _ = app.run("review.applySuggestion", json!({"text": sgt}));
+                        apply_suggestion(app, &issue, sgt);
                         ui.close();
                     }
                 }
@@ -716,6 +824,8 @@ fn pick_row(app: &mut WordApp, ctx: &Context, id: &str) {
         "layout.columns" => set_sub(ctx, Some(Sub::Columns)),
         "layout.break" => set_sub(ctx, Some(Sub::Breaks)),
         "review.comments" => set_sub(ctx, Some(Sub::Comments)),
+        "phone.lineSpacing" => set_sub(ctx, Some(Sub::LineSpacing)),
+        "phone.styles" => set_sub(ctx, Some(Sub::Styles)),
         "review.newComment" => comment_field(ctx, CommentTarget::New),
         _ => run(app, id),
     }
@@ -807,27 +917,49 @@ pub fn compact_context_menu(app: &mut WordApp, ui: &mut Ui) {
     }
     let selected = !app.session.sel.is_collapsed();
     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+    // The selection bar (plan 1.11): four actions and More, each an icon over its label, 72 pt wide.
     ui.horizontal(|ui| {
         for (icon, label, id) in
             [("cut", "Cut", "edit.cut"), ("copy", "Copy", "edit.copy"), ("paste", "Paste", "edit.paste"), ("select", "Select All", "select.all")]
         {
             let on = crate::widgets::enabled(app, id) && (selected || !matches!(id, "edit.cut" | "edit.copy"));
-            ui.add_enabled_ui(on, |ui| {
-                if icon_button(ui, m, icon, label).clicked() {
-                    let _ = app.run(id, json!({}));
-                    ui.close();
-                }
-            });
+            if bar_button(ui, m, icon, label, label, on).clicked() {
+                let _ = app.run(id, json!({}));
+                ui.close();
+            }
         }
-        if icon_button(ui, m, "comment", "New Comment").clicked() {
-            set_menu(&ctx, Some(3));
-            comment_field(&ctx, CommentTarget::New);
-            ui.close();
-        }
-        if icon_button(ui, m, "more", "More").clicked() {
+        if bar_button(ui, m, "more", "More", "More actions", true).clicked() {
             ctx.data_mut(|d| d.insert_temp(more_id, true));
         }
     });
+}
+
+/// Replaces the misspelt word that `issue` (from `review.suggestions`) names with `text`: the word
+/// itself is selected first, so the change lands on it even if the caret moved since.
+pub(crate) fn apply_suggestion(app: &mut WordApp, issue: &Value, text: &str) {
+    let parse = |k: &str| issue.get(k).and_then(wordcraft_engine::cmd::parse_pos);
+    if let (Some(a), Some(b)) = (parse("start"), parse("end")) {
+        app.session.sel = wordcraft_engine::Selection { anchor: a, focus: b };
+    }
+    let _ = app.run("review.applySuggestion", json!({"text": text}));
+}
+
+/// The selection bar's button size: 72 pt wide, 64 pt tall.
+const SELECT_W: f32 = 72.0;
+const SELECT_H: f32 = 64.0;
+
+/// One button of the selection bar: the icon over its label (`name` is the accessible name).
+fn bar_button(ui: &mut Ui, m: Md, icon: &str, label: &str, name: &str, enabled: bool) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(SELECT_W, SELECT_H), if enabled { Sense::click() } else { Sense::hover() });
+    let name = crate::tl!(name).to_string();
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, name.clone()));
+    if enabled && resp.is_pointer_button_down_on() {
+        ui.painter().rect_filled(r.shrink(2.0), CornerRadius::same(12), m.outline_variant);
+    }
+    let ink = if enabled { m.on_surface } else { m.on_surface_variant.gamma_multiply(0.45) };
+    icons::paint(ui.painter(), Rect::from_center_size(Pos2::new(r.center().x, r.top() + 22.0), vec2(24.0, 24.0)), icon, ink, m.primary);
+    ui.painter().text(Pos2::new(r.center().x, r.bottom() - 14.0), Align2::CENTER_CENTER, crate::tl!(label), regular(12.0), ink);
+    resp
 }
 
 /// A thin vertical rule between groups of toolbar controls.
@@ -866,11 +998,10 @@ fn menu(app: &mut WordApp, ui: &mut Ui, tab: usize) {
                     if text_button(ui, m, crate::tl!("Close"), m.primary, 48.0).clicked() {
                         set_menu(&ctx, None);
                     }
-                    if icon_button(ui, m, "redo", "Redo").clicked() {
-                        run(app, "edit.redo");
-                    }
-                    if icon_button(ui, m, "undo", "Undo").clicked() {
-                        run(app, "edit.undo");
+                    // Undo and Redo are in the top bar; Search lives here (and in the Tiles style's More).
+                    if icon_button(ui, m, "find", "Search").clicked() {
+                        set_menu(&ctx, None);
+                        let _ = app.run("ui.dialog", json!({"name": "commands"}));
                     }
                 });
             });
@@ -914,6 +1045,12 @@ fn menu(app: &mut WordApp, ui: &mut Ui, tab: usize) {
 fn font_row(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context) {
     // The font row, always here (no selection needed): the font name and the size stepper
     // in a fixed row, then the character formats, which scroll sideways.
+    font_name_row(app, ui, m, ctx);
+    font_formats_row(app, ui, m, ctx);
+}
+
+/// The font name (it opens the font list) and the size stepper (its number opens the size list).
+fn font_name_row(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context) {
     let st: Value = app.session.run("format.state", &json!({})).unwrap_or_default();
     let font = st.get("font").and_then(Value::as_str).unwrap_or("Font").to_string();
     let cur = st.get("size").and_then(Value::as_f64).unwrap_or(12.0) as f32;
@@ -936,6 +1073,10 @@ fn font_row(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context) {
             let _ = app.run("format.size", json!({"size": x}));
         }
     });
+}
+
+/// The character formats in a row that scrolls sideways (the List style's Home sheet).
+fn font_formats_row(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context) {
     egui::ScrollArea::horizontal().id_salt("phone_font_row").scroll_source(egui::scroll_area::ScrollSource::ALL).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
@@ -977,6 +1118,8 @@ enum Sub {
     Breaks,
     Comments,
     CommentInput,
+    LineSpacing,
+    Styles,
 }
 
 /// What the comment field writes: a new comment on the selection, or a reply in a thread.
@@ -1020,7 +1163,7 @@ fn tap_into_comment(app: &WordApp, ctx: &Context) -> bool {
     let id = egui::Id::unique("phone_tap_pending");
     let pending = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     // Read the layout before `ctx.input`: a context lock taken inside another one panics on the web build.
-    let (page_top, page_bottom) = (ctx.content_rect().top() + APP_BAR_H, bar_top(ctx));
+    let (page_top, page_bottom) = (ctx.content_rect().top() + app_bar_h(ctx), bar_top(ctx));
     let released = ctx.input(|i| {
         let on_page = i.pointer.interact_pos().is_some_and(|p| p.y > page_top && p.y < page_bottom);
         i.pointer.primary_released() && !i.pointer.is_decidedly_dragging() && on_page
@@ -1046,7 +1189,7 @@ fn set_sub(ctx: &Context, s: Option<Sub>) {
 }
 
 /// Standard colours for the font colour grid (our own palette).
-const FONT_COLOURS: [&str; 16] = [
+pub(crate) const FONT_COLOURS: [&str; 16] = [
     "000000", "FFFFFF", "C00000", "FF0000", "FFC000", "FFFF00", "92D050", "00B050", "00B0F0", "0070C0", "002060", "7030A0", "1F4E79", "2E75B6",
     "A9D18E", "F4B183",
 ];
@@ -1087,21 +1230,61 @@ fn format_page(app: &mut WordApp, ui: &mut Ui, m: Md, ctx: &Context, s: Sub) {
         Sub::Columns => "Columns",
         Sub::Breaks => "Breaks",
         Sub::Comments => "Comments",
+        Sub::LineSpacing => "Line Spacing",
+        Sub::Styles => "Styles",
         Sub::CommentInput => match comment_target(ctx) {
             CommentTarget::New => "New Comment",
             CommentTarget::Reply(_) => "Reply",
         },
     };
+    // The page's header: a back arrow (to the sheet), then the title.
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(crate::tl!(title).to_string()).strong());
-        ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-            if text_button(ui, m, crate::tl!("Back"), m.primary, 72.0).clicked() {
-                sub_back(ctx);
-            }
-        });
+        ui.set_min_height(56.0);
+        if icon_button(ui, m, "chevronLeft", "Back").clicked() {
+            sub_back(ctx);
+        }
+        ui.add_space(4.0);
+        ui.label(egui::RichText::new(crate::tl!(title).to_string()).font(medium(20.0)).color(m.on_surface));
     });
     ui.add_space(4.0);
     match s {
+        Sub::LineSpacing => {
+            for id in ["para.single", "para.oneAndHalf", "para.double"] {
+                let label = app.session.registry.get(id).map_or(id, |c| c.label);
+                if list_row(ui, m, crate::tl!(label), "lineSpacing", false).clicked() {
+                    let _ = app.run(id, json!({}));
+                    app.canvas.want_focus = false;
+                }
+            }
+            if list_row(ui, m, crate::tl!("Paragraph…"), "lineSpacing", true).clicked() {
+                set_sub(ctx, None);
+                set_menu(ctx, None);
+                let _ = app.run("ui.dialog", json!({"name": "paragraph"}));
+            }
+        }
+        Sub::Styles => {
+            // Paragraph styles: Normal and Heading 1 to 3 first, then the others by name.
+            let mut names: Vec<String> = app
+                .session
+                .doc
+                .styles
+                .styles
+                .iter()
+                .filter(|st| st.kind == wordcraft_doc::styles::StyleKind::Paragraph)
+                .map(|st| st.name.clone())
+                .collect();
+            let first = ["Normal", "Heading 1", "Heading 2", "Heading 3"];
+            names.sort_by_key(|n| (first.iter().position(|f| f == n).unwrap_or(first.len()), n.to_lowercase()));
+            names.dedup();
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for name in names {
+                    if list_row(ui, m, &name, "styles", false).clicked() {
+                        let _ = app.run("para.style", json!({"style": name}));
+                        app.canvas.want_focus = false;
+                    }
+                }
+            });
+        }
         Sub::Font => {
             let fams = app.previews.families();
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -1939,7 +2122,9 @@ mod tests {
         use egui_kittest::kittest::Queryable;
         let layout = TABS.iter().position(|t| *t == "Layout").unwrap_or(0);
         for tab in [TABLE_TAB, layout] {
-            let app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+            let mut app = crate::WordApp::new(wordcraft_engine::Session::new(wordcraft_doc::Document::new()), crate::Services::default());
+            // The icon bars belong to the List style's sheets.
+            app.ui.phone_list_style = true;
             let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(412.0, 915.0)).build_ui_state(
                 |ui, app: &mut crate::WordApp| {
                     let ctx = ui.ctx().clone();

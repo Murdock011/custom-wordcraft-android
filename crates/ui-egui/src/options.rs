@@ -352,8 +352,17 @@ fn flag(app: &mut WordApp, ui: &mut Ui, label: &str, key: &str, value: bool) {
 /// Draws General options: interface theme and size, mini toolbar, dark page, community button and
 /// default apps; the Start screen; and personalization such as user name and initials.
 fn general(app: &mut WordApp, ui: &mut Ui) {
-    section(ui, "Interface");
-    theme_picker(app, ui);
+    let phone = crate::phone::active(ui.ctx());
+    // A phone leads with Theme and Phone layout; the desktop keeps the theme under Interface.
+    if phone {
+        theme_picker(app, ui);
+        section(ui, "Phone layout");
+        phone_style_picker(app, ui);
+        section(ui, "Interface");
+    } else {
+        section(ui, "Interface");
+        theme_picker(app, ui);
+    }
     interface_size_picker(app, ui);
     ui.horizontal(|ui| {
         use wordcraft_engine::cmd::view::PaperColor;
@@ -451,6 +460,20 @@ fn selection_menu_picker(app: &mut WordApp, ui: &mut Ui) {
     });
     app.ui.compact_selection_menu = icons;
     note(ui, "On a phone. The list shows the same commands as text rows.");
+}
+
+/// The phone's toolbar style: Tiles (a tab bar and tile sheets, the default) or List (the floating
+/// formatting bar and a list sheet per tab). Saved with the settings.
+fn phone_style_picker(app: &mut WordApp, ui: &mut Ui) {
+    let mut list = app.ui.phone_list_style;
+    ui.horizontal_wrapped(|ui| {
+        ui.radio_value(&mut list, false, tl!("Tiles")).on_hover_text(tl!("A tab bar at the bottom, and each tab's commands as tiles in groups."));
+        ui.radio_value(&mut list, true, tl!("List")).on_hover_text(tl!("A floating formatting bar, and each tab's commands as rows."));
+    });
+    if list != app.ui.phone_list_style {
+        let _ = app.run("ui.phoneSheetStyle", json!({"style": if list { "list" } else { "tiles" }}));
+    }
+    note(ui, "On a phone. Both show the same commands.");
 }
 
 fn display(app: &mut WordApp, ui: &mut Ui) {
@@ -906,6 +929,22 @@ fn agents(ui: &mut Ui) {
 /// Interface theme: Light, Dark, or follow the system's appearance (#115).
 fn theme_picker(app: &mut WordApp, ui: &mut Ui) {
     use crate::theme::Appearance;
+    // A phone: the three choices as rows, each with a line under it, Light first.
+    if crate::phone::active(ui.ctx()) {
+        section(ui, "Theme");
+        for (a, label, line) in [
+            (Appearance::Light, "Light", "The default"),
+            (Appearance::Dark, "Dark", "The whole app, document area included"),
+            (Appearance::System, "System", "Follows the phone's dark theme setting"),
+        ] {
+            let resp = ui.radio(app.ui.theme == a, tl!(label));
+            note(ui, line);
+            if resp.clicked() && app.ui.theme != a {
+                let _ = app.run("ui.theme", json!({"value": a.code()}));
+            }
+        }
+        return;
+    }
     ui.horizontal_wrapped(|ui| {
         let label = ui.label(tl!("Interface theme:"));
         let combo = craft_ui::ComboBox::from_id_salt("interface_theme")
@@ -1209,8 +1248,12 @@ mod phone_tests {
         h.run_steps(4);
         assert!(phone_category_open(&h.ctx), "General opened");
         let icons = h.get_by_role_and_label(egui::accesskit::Role::RadioButton, "Icons").rect();
-        let list = h.get_by_role_and_label(egui::accesskit::Role::RadioButton, "List").rect();
-        assert!(icons.left() >= 0.0 && list.right() <= 412.0, "Icons / List fit the screen: {icons:?} {list:?}");
+        // Two List choices: the selection menu's and the phone layout's (Tiles / List).
+        for list in h.query_all_by_role_and_label(egui::accesskit::Role::RadioButton, "List").map(|n| n.rect()) {
+            assert!(icons.left() >= 0.0 && list.right() <= 412.0, "Icons / List fit the screen: {icons:?} {list:?}");
+        }
+        let tiles = h.get_by_role_and_label(egui::accesskit::Role::RadioButton, "Tiles").rect();
+        assert!(tiles.right() <= 412.0, "Tiles fits the screen: {tiles:?}");
         h.get_by_role_and_label(egui::accesskit::Role::Button, "Back").click();
         h.run_steps(4);
         assert!(!phone_category_open(&h.ctx), "Back returns to the list");

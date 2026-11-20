@@ -521,7 +521,33 @@ impl WordApp {
     }
 
     /// Commands that live in the UI layer.
+    /// The phone's UI commands: the toolbar style (`ui.phoneSheetStyle` `{"style": "tiles"|"list"}`),
+    /// and Search Commands, which on a phone opens All tools' Search in place of the dialog.
+    fn phone_command(&mut self, id: &str, p: &Value) -> Option<Result<Value, String>> {
+        let s = |k: &str| p.get(k).and_then(Value::as_str);
+        match id {
+            "ui.phoneSheetStyle" => {
+                match s("style") {
+                    Some("list") => self.ui.phone_list_style = true,
+                    Some("tiles") => self.ui.phone_list_style = false,
+                    Some(other) => return Some(Err(format!("unknown style {other:?}: use \"tiles\" or \"list\""))),
+                    None => {}
+                }
+                Some(Ok(json!({"style": if self.ui.phone_list_style { "list" } else { "tiles" }})))
+            }
+            "ui.dialog" if s("name") == Some("commands") && self.phone => {
+                let ctx = self.ctx.as_ref()?;
+                crate::phone::open_tools_search(ctx);
+                Some(Ok(json!({"dialog": "allTools"})))
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn ui_command(&mut self, id: &str, p: &Value) -> Option<Result<Value, String>> {
+        if let Some(r) = self.phone_command(id, p) {
+            return Some(r);
+        }
         let s = |k: &str| p.get(k).and_then(Value::as_str);
         Some(Ok(match id {
             "ui.checkForUpdates" | "help.checkForUpdates" => {

@@ -55,26 +55,56 @@ fn back_chevron_c(band_min_x: f32, center_y: f32, fullscreen: bool, content_left
     pos2(band_min_x + x, center_y)
 }
 
-/// The phone drawer's pages: Options comes above Close, which ends the list.
-fn drawer_pages() -> [(&'static str, &'static str, &'static str); 11] {
-    let mut pages = PAGES;
-    if let (Some(close), Some(options)) = (pages.iter().position(|p| p.0 == "close"), pages.iter().position(|p| p.0 == "options")) {
-        pages.swap(close, options);
+/// The phone File menu's rows, in the shared shell's order (plan 1.8): Home, New, Open, Info,
+/// Recover, Save, Save As, Export, Print, Options, About, Close.
+const MENU_ROWS: [(&str, &str, &str); 12] = [
+    ("home", "Home", "homeFolder"),
+    ("new", "New", "blankPage"),
+    ("open", "Open", "open"),
+    ("info", "Info", "info"),
+    ("recover", "Recover", "recover"),
+    ("save", "Save", "save"),
+    ("saveAs", "Save As", "saveAs"),
+    ("export", "Export", "export"),
+    ("print", "Print", "print"),
+    ("options", "Options", "options"),
+    ("about", "About", "info"),
+    ("close", "Close", "close"),
+];
+
+/// Whether the phone's File menu (the list) shows in place of a page. Kept in egui's memory.
+fn menu_id() -> egui::Id {
+    egui::Id::unique("phone_file_menu")
+}
+
+fn menu_shown(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(menu_id())).unwrap_or(false)
+}
+
+fn set_menu_shown(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(menu_id(), on));
+}
+
+/// Forgets the File menu when the File view closes: other ways in open a page directly.
+pub fn close_phone_menu(ctx: &egui::Context) {
+    set_menu_shown(ctx, false);
+}
+
+/// Opens the phone's File menu (the File button). Other ways in open a page directly.
+pub fn open_phone_menu(ctx: &egui::Context) {
+    set_menu_shown(ctx, true);
+}
+
+/// Android Back (Escape) in the File view on a phone: a page goes back to the menu, the menu
+/// back to the document.
+pub fn phone_back(app: &mut WordApp, ctx: &egui::Context) {
+    if menu_shown(ctx) {
+        set_menu_shown(ctx, false);
+        back_from_home(app);
+        app.canvas.want_focus = true;
+    } else {
+        set_menu_shown(ctx, true);
     }
-    pages
-}
-
-/// Whether the phone's navigation drawer is open. Kept in egui's memory, as the phone bars keep theirs.
-fn drawer_id() -> egui::Id {
-    egui::Id::unique("phone_backstage_drawer")
-}
-
-fn drawer_open(ctx: &egui::Context) -> bool {
-    ctx.data(|d| d.get_temp::<bool>(drawer_id())).unwrap_or(false)
-}
-
-fn set_drawer(ctx: &egui::Context, open: bool) {
-    ctx.data_mut(|d| d.insert_temp(drawer_id(), open));
 }
 
 /// Leaves the Backstage on a phone (the back arrow, or Android Back as Escape). With no document
@@ -87,79 +117,61 @@ pub fn back_from_home(app: &mut WordApp) {
     app.ui.backstage = false;
 }
 
-/// The Backstage on a phone: a top app bar (menu, the page's name, back), the pages in a
-/// navigation drawer the menu button opens, and the page below. The desktop sidebar is too wide
+/// The File view on a phone (plan 1.8): the File menu, a full-screen list of the pages, and one
+/// page at a time with a back arrow. Back goes page, then menu, then document. The desktop sidebar is too wide
 /// for a phone, so it is not drawn.
 fn phone_show(app: &mut WordApp, ui: &mut Ui) {
     let m = crate::phone::md(ui.ctx());
+    let ctx = ui.ctx().clone();
     let has_document = app.has_document();
     if !has_document && !works_without_document(&app.ui.backstage_page) {
         app.ui.backstage_page = "home".into();
     }
-    let drawer = drawer_open(ui.ctx());
-    let title = PAGES.iter().find(|(id, ..)| *id == app.ui.backstage_page).map_or("Home", |(_, label, _)| *label);
+    let menu = menu_shown(&ctx);
+    let title = if menu { "File" } else { PAGES.iter().find(|(id, ..)| *id == app.ui.backstage_page).map_or("Home", |(_, label, _)| *label) };
+    // The header: a back arrow (page to menu, menu to document) and the title.
     egui::Panel::top("backstage_app_bar").exact_size(56.0).frame(egui::Frame::NONE.fill(m.surface).inner_margin(egui::Margin::symmetric(8, 0))).show(
         ui,
         |ui| {
             ui.horizontal_centered(|ui| {
-                if icon_only(ui, "menu", "Menu").clicked() {
-                    set_drawer(ui.ctx(), !drawer);
+                if icon_only(ui, "chevronLeft", "Back").clicked() {
+                    phone_back(app, &ctx);
                 }
                 ui.add_space(4.0);
-                ui.add(egui::Label::new(egui::RichText::new(tl!(title)).font(medium(18.0))).truncate());
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icon_only(ui, "chevronLeft", "Back").clicked() {
-                        back_from_home(app);
-                        app.canvas.want_focus = true;
-                    }
-                });
+                ui.add(egui::Label::new(egui::RichText::new(tl!(title)).font(medium(20.0))).truncate());
             });
         },
     );
-    if drawer {
-        // A modal drawer floats over the page, as Material's does, so the page keeps its width.
-        let height = ui.ctx().content_rect().height() - 56.0;
-        let shadow = egui::Shadow { offset: [0, 6], blur: 18, spread: 0, color: egui::Color32::from_black_alpha(80) };
-        egui::Area::new(egui::Id::unique("backstage_drawer")).anchor(Align2::LEFT_TOP, vec2(0.0, 56.0)).order(egui::Order::Foreground).show(
-            ui.ctx(),
-            |ui| {
-                egui::Frame::NONE.fill(m.surface_low).shadow(shadow).inner_margin(egui::Margin::symmetric(0, 16)).show(ui, |ui| {
-                    ui.set_width(296.0);
-                    ui.set_min_height(height - 32.0);
-                    for (id, label, icon) in drawer_pages() {
-                        // No document open (#1129): the pages that need one are greyed out.
-                        let on = has_document || works_without_document(id);
-                        let active = app.ui.backstage_page == id;
-                        let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
-                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, on, tl!(label)));
-                        // The active page is a tinted pill, as Material's drawer marks its current item.
-                        let fill = if active {
-                            m.primary_container
-                        } else if on && resp.hovered() {
-                            m.surface_high
+    if menu {
+        // The File menu: a full-screen list of 52 pt rows with icons.
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(m.surface).inner_margin(egui::Margin::symmetric(0, 8))).show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+                for (id, label, icon) in MENU_ROWS {
+                    if id == "recover" && !works_without_document(id) {
+                        continue;
+                    }
+                    // No document open (#1129): the pages that need one are greyed out.
+                    let on = has_document || works_without_document(id) || id == "about" || id == "close" && app.services.close_quits;
+                    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 52.0), if on { Sense::click() } else { Sense::hover() });
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, on, tl!(label)));
+                    if on && resp.is_pointer_button_down_on() {
+                        ui.painter().rect_filled(r, egui::CornerRadius::ZERO, m.surface_high);
+                    }
+                    let ink = if on { m.on_surface } else { m.on_surface_variant.gamma_multiply(0.6) };
+                    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 32.0, r.center().y), vec2(24.0, 24.0)), icon, ink, m.primary);
+                    ui.painter().text(pos2(r.min.x + 72.0, r.center().y), Align2::LEFT_CENTER, tl!(label), medium(16.0), ink);
+                    if resp.clicked() && on {
+                        set_menu_shown(&ctx, false);
+                        if id == "about" {
+                            app.dialog = crate::dialogs::Dialog::open("about", app);
                         } else {
-                            egui::Color32::TRANSPARENT
-                        };
-                        let row = r.shrink2(vec2(12.0, 0.0));
-                        ui.painter().rect_filled(row, egui::CornerRadius::same(24), fill);
-                        let ink = if on { m.on_surface } else { m.on_surface_variant };
-                        icons::paint(
-                            ui.painter(),
-                            Rect::from_center_size(pos2(row.min.x + 24.0, row.center().y), vec2(20.0, 20.0)),
-                            icon,
-                            ink,
-                            m.primary,
-                        );
-                        let font = if active { semibold(15.0) } else { medium(15.0) };
-                        ui.painter().text(pos2(row.min.x + 56.0, row.center().y), Align2::LEFT_CENTER, tl!(label), font, ink);
-                        if resp.clicked() && on {
-                            set_drawer(ui.ctx(), false);
                             go_to_page(app, id);
                         }
                     }
-                });
-            },
-        );
+                }
+            });
+        });
+        return;
     }
     egui::CentralPanel::default().frame(egui::Frame::NONE.fill(m.surface).inner_margin(egui::Margin::symmetric(0, 12))).show(ui, |ui| {
         // The side padding sits inside the page, so the scroll area reaches the window's edge (#5282).
@@ -506,6 +518,10 @@ fn works_without_document(page: &str) -> bool {
 }
 
 fn heading(ui: &mut Ui, s: &str) {
+    // A phone's File page header already names the page.
+    if crate::phone::active(ui.ctx()) {
+        return;
+    }
     ui.label(egui::RichText::new(tl!(s)).font(semibold(26.0)));
     ui.add_space(16.0);
 }
@@ -1024,8 +1040,7 @@ fn save_as_page(app: &mut WordApp, ui: &mut Ui) {
     }
     // A Word template in the user templates folder, which File › New lists under Personal (#2852).
     ui.add_space(8.0);
-    if ui
-        .button(egui::RichText::new(tl!("Save as Word Template…")).font(medium(14.0)))
+    if page_button(ui, tl!("Save as Word Template…"), 14.0)
         .on_hover_text(tl!("Saves a .dotx template in your templates folder. It shows up in File › New under Personal."))
         .clicked()
     {
@@ -1158,8 +1173,13 @@ fn export_page(app: &mut WordApp, ui: &mut Ui) {
         heading(ui, "Print");
         // Print Markup (a print setting, as in Word): the comments beside each page.
         let mut markup = app.session.prefs.print_markup;
-        if ui
-            .checkbox(&mut markup, tl!("Print Markup"))
+        // A phone: a switch row.
+        let resp = if crate::phone::active(ui.ctx()) {
+            crate::phone::toggle_row(ui, &mut markup, tl!("Print Markup"))
+        } else {
+            ui.checkbox(&mut markup, tl!("Print Markup"))
+        };
+        if resp
             .on_hover_text(tl!(
                 "Comments beside each page and tracked changes in PDFs, prints and images; a comment list at the end of web pages, Markdown and text."
             ))

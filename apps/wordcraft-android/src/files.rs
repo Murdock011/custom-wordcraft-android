@@ -122,6 +122,24 @@ pub fn save_recent(list: &[String]) {
     }
 }
 
+const UI_FILE: &str = "ui.json";
+
+/// The saved settings (`ui.json` in the data directory), if any.
+pub fn load_ui() -> Option<Vec<u8>> {
+    DIR.get().and_then(|d| std::fs::read(d.join(UI_FILE)).ok())
+}
+
+/// Keeps the settings for the next launch. The bytes go to a temporary file first, so an
+/// interrupted write leaves the previous settings in place. A failed write only loses the change.
+pub fn save_ui(bytes: &[u8]) {
+    if let Some(d) = DIR.get() {
+        let tmp = d.join(".ui.json.tmp");
+        if std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, d.join(UI_FILE))).is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+    }
+}
+
 /// Where the recovery copies of unsaved work live: the app's data directory.
 pub fn recovery_dir() -> Option<PathBuf> {
     DIR.get().map(|d| d.join("recovery"))

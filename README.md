@@ -14,7 +14,7 @@
 
 ## Screenshots
 
-<p><img src="docs/screenshots/home.png" width="180" alt="Home screen"> <img src="docs/screenshots/document.png" width="180" alt="A sample document open in the editor"> <img src="docs/screenshots/home-tab.png" width="180" alt="Home tab of the ribbon with formatting controls"> <img src="docs/screenshots/review-tab.png" width="180" alt="Review tab sheet with an icon for each command"> <img src="docs/screenshots/font-dialog.png" width="180" alt="Font dialog"> <img src="docs/screenshots/options.png" width="180" alt="Options list"> <img src="docs/screenshots/read-mode.png" width="180" alt="Read mode"></p>
+<p><img src="docs/screenshots/home.png" width="180" alt="Home screen"> <img src="docs/screenshots/document.png" width="180" alt="A sample document open in the editor"> <img src="docs/screenshots/home-tab.png" width="180" alt="Home sheet of the tab bar with labelled tiles"> <img src="docs/screenshots/review-tab.png" width="180" alt="Review sheet with labelled tiles in sections"> <img src="docs/screenshots/all-tools.png" width="180" alt="All tools: every command by ribbon tab"> <img src="docs/screenshots/dark.png" width="180" alt="Dark theme, document area included"> <img src="docs/screenshots/font-dialog.png" width="180" alt="Font dialog"> <img src="docs/screenshots/options.png" width="180" alt="Options list"> <img src="docs/screenshots/read-mode.png" width="180" alt="Read mode"></p>
 
 ## What this is
 
@@ -35,7 +35,7 @@ currently based on WordCraft engine **0.18.1**.
 ## Download
 
 Builds are on the [Releases page](https://github.com/Murdock011/custom-wordcraft-android/releases).
-The latest is **0.2.2** (WordCraft engine 0.15.0): `custom-wordcraft-android-arm64.apk`, for 64-bit ARM phones
+The latest is **0.3.0** (WordCraft engine 0.18.1): `custom-wordcraft-android-arm64.apk`, for 64-bit ARM phones
 (arm64-v8a) only. It is signed with a debug key, so Android asks you to allow installs from your
 browser or file manager. It installs as `ai.storyteller.wordcraft.native`, next to any other
 WordCraft build.
@@ -48,8 +48,11 @@ WordCraft build.
   Share for .docx, .doc, .rtf, .odt, .txt and .md.
 - Recovery of unsaved work after Android closes the app: text is saved the moment the app goes to
   the background, and the next launch opens on Recover.
-- A phone layout: ribbon tabs as sheets, full-width icon bars, dialogs as bottom sheets with large
-  buttons, Options as a list of pages with toggle switches.
+- A phone layout: a tab bar (Home, Insert, Layout, Review, View, More) with sheets of labelled
+  tiles, All tools (every command, by ribbon tab, with search), a keyboard bar while typing, dialogs
+  as bottom sheets with large buttons, Options as a list of pages with toggle switches. File ›
+  Options › General has the theme (Light, Dark or System; Light on a first start) and the phone
+  layout (Tiles, or List: the earlier floating bar and list sheets).
 - Read Aloud with Android's text-to-speech, dark mode, rotation.
 
 Status: tested on an Android emulator and briefly by hand on one Samsung phone. Work in progress and
